@@ -1,0 +1,18 @@
+# Secretos / configuración local
+.env
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Binario del túnel (se descarga aparte)
+cloudflared.exe
+
+# Salidas generadas
+reports/
+leads.csv
+*_audit.json
+*_informe.md
+uvicorn

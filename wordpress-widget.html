@@ -1,0 +1,187 @@
+<!--
+  ============================================================
+  WIDGET DE DIAGNÓSTICO SEO + GEO — para pegar en WordPress
+  ============================================================
+  Cómo usarlo:
+  1. En WordPress, edita la página donde lo quieras.
+  2. Añade un bloque "HTML personalizado" (Custom HTML).
+  3. Pega TODO este contenido.
+  4. Cambia el valor de API_BASE (abajo, en el <script>) por la URL
+     pública de tu API (el túnel de hoy, o tu dominio de Render mañana).
+
+  Nota: NO incluye el módulo de pagos todavía (eso queda para después).
+  ============================================================
+-->
+<div id="seo-geo-widget">
+  <style>
+    #seo-geo-widget * { box-sizing: border-box; }
+    #seo-geo-widget {
+      --sg-primary: #1F3A5F;
+      --sg-accent: #F2A20C;
+      --sg-ok: #1E8E4E;
+      --sg-warn: #E08600;
+      --sg-fail: #C62828;
+      max-width: 560px; margin: 0 auto;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #1B2430;
+    }
+    #seo-geo-widget .sg-card {
+      background: #fff; border: 1px solid #E2E6EC; border-radius: 14px;
+      padding: 28px; box-shadow: 0 6px 24px rgba(31,58,95,.08);
+    }
+    #seo-geo-widget h2 { margin: 0 0 4px; font-size: 22px; color: var(--sg-primary); }
+    #seo-geo-widget .sg-sub { margin: 0 0 20px; color: #5C6B7A; font-size: 14px; }
+    #seo-geo-widget label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 5px; }
+    #seo-geo-widget input {
+      width: 100%; padding: 11px 13px; border: 1px solid #D2D9E2; border-radius: 9px;
+      font-size: 15px; transition: border-color .15s;
+    }
+    #seo-geo-widget input:focus { outline: none; border-color: var(--sg-primary); }
+    #seo-geo-widget .sg-row { display: flex; gap: 12px; }
+    #seo-geo-widget .sg-row > div { flex: 1; }
+    #seo-geo-widget button {
+      width: 100%; margin-top: 22px; padding: 14px; border: 0; border-radius: 10px;
+      background: var(--sg-primary); color: #fff; font-size: 16px; font-weight: 700;
+      cursor: pointer; transition: opacity .15s;
+    }
+    #seo-geo-widget button:hover { opacity: .92; }
+    #seo-geo-widget button:disabled { opacity: .6; cursor: not-allowed; }
+    #seo-geo-widget .sg-note { margin-top: 12px; font-size: 12px; color: #8A97A4; text-align: center; }
+    #seo-geo-widget .sg-hidden { display: none; }
+    #seo-geo-widget .sg-error {
+      margin-top: 14px; padding: 11px 14px; background: #FDECEA; color: var(--sg-fail);
+      border-radius: 9px; font-size: 14px;
+    }
+    /* Resultados */
+    #seo-geo-widget .sg-scores { display: flex; gap: 10px; margin: 4px 0 18px; }
+    #seo-geo-widget .sg-score { flex: 1; text-align: center; padding: 14px 6px; border-radius: 11px; background: #F4F6F9; }
+    #seo-geo-widget .sg-score .n { font-size: 26px; font-weight: 800; line-height: 1; }
+    #seo-geo-widget .sg-score .l { font-size: 11px; color: #5C6B7A; margin-top: 5px; }
+    #seo-geo-widget .sg-global { text-align: center; margin-bottom: 8px; }
+    #seo-geo-widget .sg-global .n { font-size: 52px; font-weight: 800; line-height: 1; }
+    #seo-geo-widget .sg-global .l { font-size: 13px; color: #5C6B7A; }
+    #seo-geo-widget .sg-dl {
+      display: block; text-align: center; margin-top: 18px; padding: 14px;
+      background: var(--sg-accent); color: #1B2430; border-radius: 10px;
+      font-weight: 700; text-decoration: none; font-size: 16px;
+    }
+    #seo-geo-widget .sg-spinner {
+      width: 18px; height: 18px; border: 3px solid rgba(255,255,255,.4);
+      border-top-color: #fff; border-radius: 50%; display: inline-block;
+      vertical-align: middle; margin-right: 8px; animation: sgspin .8s linear infinite;
+    }
+    @keyframes sgspin { to { transform: rotate(360deg); } }
+  </style>
+
+  <!-- FORMULARIO -->
+  <div class="sg-card" id="sg-form-card">
+    <h2>Diagnóstico SEO + GEO gratis</h2>
+    <p class="sg-sub">Descubre cómo te ven Google y las IAs (ChatGPT, Gemini, Perplexity). Recibe tu informe en segundos.</p>
+    <form id="sg-form">
+      <div class="sg-row">
+        <div>
+          <label for="sg-nombre">Nombre *</label>
+          <input id="sg-nombre" name="nombre" required placeholder="Tu nombre" />
+        </div>
+        <div>
+          <label for="sg-email">Email *</label>
+          <input id="sg-email" name="email" type="email" required placeholder="tu@correo.com" />
+        </div>
+      </div>
+      <label for="sg-dominio">Dominio de tu sitio *</label>
+      <input id="sg-dominio" name="dominio" required placeholder="ejemplo.com" />
+      <div class="sg-row">
+        <div>
+          <label for="sg-empresa">Empresa</label>
+          <input id="sg-empresa" name="empresa" placeholder="(opcional)" />
+        </div>
+        <div>
+          <label for="sg-telefono">Teléfono</label>
+          <input id="sg-telefono" name="telefono" placeholder="(opcional)" />
+        </div>
+      </div>
+      <button type="submit" id="sg-submit">Generar mi diagnóstico</button>
+      <p class="sg-note">Gratis · sin tarjeta · tu informe llega también a tu correo.</p>
+      <div id="sg-error" class="sg-error sg-hidden"></div>
+    </form>
+  </div>
+
+  <!-- RESULTADO -->
+  <div class="sg-card sg-hidden" id="sg-result-card">
+    <h2>Tu diagnóstico está listo ✅</h2>
+    <p class="sg-sub" id="sg-result-domain"></p>
+    <div class="sg-global">
+      <div class="n" id="sg-global-score">—</div>
+      <div class="l">Puntaje global / 100</div>
+    </div>
+    <div class="sg-scores">
+      <div class="sg-score"><div class="n" id="sg-s-seo">—</div><div class="l">SEO técnico</div></div>
+      <div class="sg-score"><div class="n" id="sg-s-geo">—</div><div class="l">GEO (IA)</div></div>
+      <div class="sg-score"><div class="n" id="sg-s-cont">—</div><div class="l">Contenido</div></div>
+    </div>
+    <a id="sg-download" class="sg-dl" href="#" target="_blank" rel="noopener">⬇ Descargar informe PDF completo</a>
+    <p class="sg-note">¿Quieres mejorar estos resultados? Te enviamos también el informe a tu correo.</p>
+  </div>
+</div>
+
+<script>
+(function () {
+  // ============================================================
+  // 1) CONFIGURA AQUÍ la URL pública de tu API (sin / al final)
+  //    - Hoy (túnel):    "https://algo.trycloudflare.com"
+  //    - Producción:     "https://tu-api.onrender.com"
+  // ============================================================
+  var API_BASE = "https://cholesterol-now-bedrooms-james.trycloudflare.com";
+
+  var form = document.getElementById("sg-form");
+  var submit = document.getElementById("sg-submit");
+  var errBox = document.getElementById("sg-error");
+
+  function color(n) { return n >= 80 ? "#1E8E4E" : (n >= 50 ? "#E08600" : "#C62828"); }
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    errBox.classList.add("sg-hidden");
+    submit.disabled = true;
+    submit.innerHTML = '<span class="sg-spinner"></span>Analizando tu sitio…';
+
+    var payload = {
+      nombre: form.nombre.value.trim(),
+      email: form.email.value.trim(),
+      dominio: form.dominio.value.trim(),
+      empresa: form.empresa.value.trim(),
+      telefono: form.telefono.value.trim()
+    };
+
+    fetch(API_BASE + "/api/diagnostico", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+    .then(function (r) {
+      return r.json().then(function (data) {
+        if (!r.ok) throw new Error(data.detail || "No se pudo generar el diagnóstico.");
+        return data;
+      });
+    })
+    .then(function (data) {
+      var s = data.scores || {};
+      document.getElementById("sg-result-domain").textContent = "Dominio analizado: " + data.dominio;
+      var g = document.getElementById("sg-global-score");
+      g.textContent = s.promedio_general; g.style.color = color(s.promedio_general);
+      var seo = document.getElementById("sg-s-seo"); seo.textContent = s.seo_tecnico; seo.style.color = color(s.seo_tecnico);
+      var geo = document.getElementById("sg-s-geo"); geo.textContent = s.geo; geo.style.color = color(s.geo);
+      var con = document.getElementById("sg-s-cont"); con.textContent = s.contenido; con.style.color = color(s.contenido);
+      document.getElementById("sg-download").href = API_BASE + data.pdf_url;
+      document.getElementById("sg-form-card").classList.add("sg-hidden");
+      document.getElementById("sg-result-card").classList.remove("sg-hidden");
+    })
+    .catch(function (err) {
+      errBox.textContent = err.message || "Ocurrió un error. Inténtalo de nuevo.";
+      errBox.classList.remove("sg-hidden");
+      submit.disabled = false;
+      submit.innerHTML = "Generar mi diagnóstico";
+    });
+  });
+})();
+</script>

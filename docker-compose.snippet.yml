@@ -1,0 +1,35 @@
+# ============================================================
+# Bloque para añadir al docker-compose.yml del VPS de tu jefe.
+# Copia el servicio "agente-seo-geo" dentro de la sección "services:"
+# de su compose, y ajústalo a cómo expone los demás servicios
+# (reverse proxy, red, puertos).
+# ============================================================
+services:
+  agente-seo-geo:
+    build: ./agente-seo-geo          # ruta a esta carpeta dentro del repo del VPS
+    # Alternativa si lo construyen aparte:
+    # image: tu-registry/agente-seo-geo:latest
+    container_name: agente-seo-geo
+    restart: unless-stopped
+    environment:
+      ENABLE_AI_SUMMARY: "true"
+      AI_PROVIDER: "groq"
+      GROQ_API_KEY: "${GROQ_API_KEY}"        # define este secreto en el .env del VPS
+      COMPANY_NAME: "Agencia IDP"
+      BRAND_LOGO_PATH: "assets/logo-idp-white.png"
+      BRAND_PRIMARY_COLOR: "#1F3A5F"
+      BRAND_ACCENT_COLOR: "#F2A20C"
+      BRAND_CTA_URL: "https://agenciaidp.co"
+      BRAND_CONTACT_EMAIL: "seo@agenciaidp.com"
+      ALLOWED_ORIGINS: "*"                   # luego restringir al dominio de WordPress
+    # Si el VPS usa un reverse proxy (Traefik/Nginx Proxy Manager), normalmente
+    # NO se publican puertos directamente, sino que se enruta por la red interna.
+    # Si NO hay proxy y quieres exponerlo directo, descomenta:
+    # ports:
+    #   - "8090:8000"     # 8090 externo (ajústalo si está ocupado) -> 8000 interno
+    # Opcional: persistir los PDFs e historial de leads entre reinicios
+    volumes:
+      - agente_seo_data:/app/reports
+
+volumes:
+  agente_seo_data:

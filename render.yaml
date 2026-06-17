@@ -1,0 +1,32 @@
+# Configuración de despliegue para Render (https://render.com)
+# Render leerá este archivo automáticamente al crear un "Blueprint".
+# Los valores marcados con sync:false son SECRETOS: se ponen a mano en el
+# panel de Render (no se versionan en git).
+services:
+  - type: web
+    name: agente-seo-geo
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ENABLE_AI_SUMMARY
+        value: "true"
+      - key: AI_PROVIDER
+        value: groq
+      - key: GROQ_API_KEY
+        sync: false            # ← pégala en el panel de Render (secreto)
+      - key: COMPANY_NAME
+        value: Agencia IDP
+      - key: BRAND_LOGO_PATH
+        value: assets/logo-idp-white.png
+      - key: BRAND_PRIMARY_COLOR
+        value: "#1F3A5F"
+      - key: BRAND_ACCENT_COLOR
+        value: "#F2A20C"
+      - key: BRAND_CTA_URL
+        value: https://agenciaidp.co
+      - key: BRAND_CONTACT_EMAIL
+        value: seo@agenciaidp.com
+      - key: ALLOWED_ORIGINS
+        value: "*"             # luego puedes restringirlo a tu dominio WordPress

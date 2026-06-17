@@ -1,0 +1,26 @@
+# No copiar al contenedor:
+.env
+.git/
+.gitignore
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Binario del túnel (solo era para pruebas locales)
+cloudflared.exe
+
+# Salidas/temporales generados en local
+reports/
+leads.csv
+*_audit.json
+*_informe.md
+_preview_*.png
+_ref_extract.txt
+_gen_extract.txt
+
+# Documentación que no necesita el contenedor
+*.md
+demo_*.pdf
+demo_*.json
+page*.jpg
