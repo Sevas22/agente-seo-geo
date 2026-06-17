@@ -199,6 +199,21 @@ def procesar_y_enviar(lead: dict, report: dict, pdf_path: Path):
     notificar_equipo_comercial(lead, report["scores"], pdf_path)
 
 
+def generar_pdf_seguro(report, lead, pdf_path):
+    """Genera el PDF; si falla con el análisis de IA, reintenta SIN IA para que
+    el informe (con los datos medidos) siempre se entregue. Registra el error
+    real en los logs para diagnóstico."""
+    try:
+        generate_pdf(report, lead, str(pdf_path))
+    except Exception as exc:
+        import traceback
+        print(f"[main] Error generando PDF con IA, reintento sin IA: {exc}")
+        traceback.print_exc()
+        report_sin_ia = dict(report)
+        report_sin_ia["ai_summary"] = None
+        generate_pdf(report_sin_ia, lead, str(pdf_path))
+
+
 # ----------------------------------------------------------------------
 # Endpoints
 # ----------------------------------------------------------------------
@@ -241,7 +256,7 @@ def crear_diagnostico(payload: DiagnosticoRequest, background_tasks: BackgroundT
     # Si no está activado o falla, no afecta el resto del informe.
     report["ai_summary"] = generar_resumen_ia(report, scores, recommendations, lead)
 
-    generate_pdf(report, lead, str(pdf_path))
+    generar_pdf_seguro(report, lead, pdf_path)
 
     guardar_lead({
         "fecha": datetime.utcnow().isoformat(),
@@ -375,7 +390,7 @@ def verificar_pago(payload: VerificarPagoRequest, background_tasks: BackgroundTa
         report["recommendations"] = recommendations
         report["ai_summary"] = generar_resumen_ia(report, scores, recommendations, lead)
 
-        generate_pdf(report, lead, str(pdf_path))
+        generar_pdf_seguro(report, lead, pdf_path)
 
         guardar_lead({
             "fecha": datetime.utcnow().isoformat(),

@@ -118,6 +118,25 @@ def _hx(c):
     return "#" + c.hexval()[2:]
 
 
+# --- Coerción defensiva de la salida de la IA (puede venir malformada) ---
+def _as_dict(v):
+    return v if isinstance(v, dict) else {}
+
+
+def _as_str(v):
+    return v if isinstance(v, str) else ""
+
+
+def _as_dict_list(v):
+    return [x for x in v if isinstance(x, dict)] if isinstance(v, list) else []
+
+
+def _as_str_list(v):
+    if not isinstance(v, list):
+        return []
+    return [x for x in v if isinstance(x, str) and x.strip()]
+
+
 def _logo_flowable(path, max_w, max_h):
     """Devuelve un Image escalado para caber en max_w x max_h conservando
     la proporción original, o None si el archivo no se puede leer.
@@ -398,6 +417,30 @@ def generate_pdf(report, lead, output_path, branding=None):
     ai = report.get("ai_summary") or {}
     if isinstance(ai, str):
         ai = {"resumen_ejecutivo": {"situacion_actual": ai}}
+    if not isinstance(ai, dict):
+        ai = {}
+    # Normalizar tipos para tolerar cualquier forma que devuelva el LLM
+    _re = ai.get("resumen_ejecutivo")
+    ai = {
+        "negocio": _as_dict(ai.get("negocio")),
+        "score_label": _as_str(ai.get("score_label")),
+        "potencial": _as_str(ai.get("potencial")),
+        "badges": _as_str_list(ai.get("badges")),
+        "kpis_destacados": _as_dict_list(ai.get("kpis_destacados")),
+        "resumen_ejecutivo": _re if isinstance(_re, (dict, str)) else {},
+        "lo_que_funciona": _as_str(ai.get("lo_que_funciona")),
+        "lo_que_frena": _as_str(ai.get("lo_que_frena")),
+        "problemas_criticos": _as_dict_list(ai.get("problemas_criticos")),
+        "quick_wins": _as_dict_list(ai.get("quick_wins")),
+        "geo": _as_dict(ai.get("geo")),
+        "competidores": _as_dict_list(ai.get("competidores")),
+        "keywords": _as_dict_list(ai.get("keywords")),
+        "roadmap": _as_dict_list(ai.get("roadmap")),
+        "kpis_6_meses": _as_dict_list(ai.get("kpis_6_meses")),
+        "proximos_pasos": _as_dict_list(ai.get("proximos_pasos")),
+        "conclusion": _as_str(ai.get("conclusion")),
+        "veredicto": _as_str(ai.get("veredicto")),
+    }
     negocio = ai.get("negocio") or {}
 
     story = []
@@ -671,7 +714,8 @@ def generate_pdf(report, lead, output_path, branding=None):
         if geo_ai.get("estado_actual"):
             story.append(Paragraph(f"<b>Estado actual:</b> {geo_ai['estado_actual']}", styles["Body"]))
             story.append(Spacer(1, 0.1 * cm))
-        nec = geo_ai.get("que_necesita") or []
+        nec = geo_ai.get("que_necesita")
+        nec = nec if isinstance(nec, list) else []
         if nec:
             story.append(Paragraph("<b>Qué necesita el sitio para aparecer en IAs:</b>", styles["Body"]))
             for n in nec:
@@ -753,7 +797,8 @@ def generate_pdf(report, lead, output_path, branding=None):
                                      "Plan 30 / 60 / 90 días", styles, primary, W))
         story.append(Spacer(1, 0.2 * cm))
         for fase in roadmap[:4]:
-            items = fase.get("items") or []
+            items = fase.get("items")
+            items = items if isinstance(items, list) else []
             cuerpo = [Paragraph(f"<b>{fase.get('fase','')}</b>", styles["CalloutTitle"])]
             inner = [Paragraph(f'• {it}', styles["BodyTight"]) for it in items]
             head = Table([[cuerpo[0]]], colWidths=[W])
