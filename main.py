@@ -78,6 +78,19 @@ app.add_middleware(
 )
 
 
+# --- TEMPORAL (depuración): muestra el traceback real del error 500 ---
+# Quitar una vez resuelto el problema en producción.
+import traceback as _tb_debug
+from fastapi.responses import PlainTextResponse as _PlainTextResponse
+
+
+@app.exception_handler(Exception)
+async def _debug_exception_handler(request, exc):
+    tb = "".join(_tb_debug.format_exception(type(exc), exc, exc.__traceback__))
+    print(tb)
+    return _PlainTextResponse("TRACEBACK:\n" + tb, status_code=500)
+
+
 # ----------------------------------------------------------------------
 # Modelos
 # ----------------------------------------------------------------------
