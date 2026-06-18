@@ -78,17 +78,15 @@ app.add_middleware(
 )
 
 
-# --- TEMPORAL (depuración): muestra el traceback real del error 500 ---
-# Quitar una vez resuelto el problema en producción.
-import traceback as _tb_debug
-from fastapi.responses import PlainTextResponse as _PlainTextResponse
+# Registra el traceback completo en los logs del servidor (visibles en
+# Dokploy -> Logs) para diagnóstico, pero NO lo expone al cliente.
+import traceback as _tb_log
 
 
 @app.exception_handler(Exception)
-async def _debug_exception_handler(request, exc):
-    tb = "".join(_tb_debug.format_exception(type(exc), exc, exc.__traceback__))
-    print(tb)
-    return _PlainTextResponse("TRACEBACK:\n" + tb, status_code=500)
+async def _log_exception_handler(request, exc):
+    print("".join(_tb_log.format_exception(type(exc), exc, exc.__traceback__)))
+    return JSONResponse({"detail": "Error interno del servidor."}, status_code=500)
 
 
 # ----------------------------------------------------------------------
