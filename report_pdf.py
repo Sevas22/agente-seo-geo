@@ -35,10 +35,43 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    Image, HRFlowable, PageBreak, KeepTogether,
+    Image, HRFlowable, PageBreak, CondPageBreak, KeepTogether,
 )
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase.pdfmetrics import registerFontFamily
+
+
+# ----------------------------------------------------------------------
+# Fuentes de marca (Space Grotesk para títulos, Inter para texto).
+# Si no se pueden cargar, se usa Helvetica (no rompe nada).
+# ----------------------------------------------------------------------
+_FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
+FONT_TITLE = "Helvetica-Bold"     # títulos (Space Grotesk Bold)
+FONT_HEAD = "Helvetica-Bold"      # encabezados (Space Grotesk Bold)
+FONT_BODY = "Helvetica"           # texto (Inter Regular)
+
+
+def _register_fonts():
+    global FONT_TITLE, FONT_HEAD, FONT_BODY
+    try:
+        pdfmetrics.registerFont(TTFont("Inter", os.path.join(_FONTS_DIR, "Inter-Regular.ttf")))
+        pdfmetrics.registerFont(TTFont("Inter-Bold", os.path.join(_FONTS_DIR, "Inter-Bold.ttf")))
+        pdfmetrics.registerFont(TTFont("SpaceGrotesk", os.path.join(_FONTS_DIR, "SpaceGrotesk-Medium.ttf")))
+        pdfmetrics.registerFont(TTFont("SpaceGrotesk-Bold", os.path.join(_FONTS_DIR, "SpaceGrotesk-Bold.ttf")))
+        registerFontFamily("Inter", normal="Inter", bold="Inter-Bold", italic="Inter", boldItalic="Inter-Bold")
+        registerFontFamily("SpaceGrotesk", normal="SpaceGrotesk", bold="SpaceGrotesk-Bold",
+                           italic="SpaceGrotesk", boldItalic="SpaceGrotesk-Bold")
+        FONT_TITLE = "SpaceGrotesk-Bold"
+        FONT_HEAD = "SpaceGrotesk"   # familia: usa Bold con <b>
+        FONT_BODY = "Inter"
+    except Exception as exc:
+        print(f"[report_pdf] No se cargaron las fuentes de marca, se usa Helvetica: {exc}")
+
+
+_register_fonts()
 
 
 # ----------------------------------------------------------------------
@@ -46,8 +79,8 @@ from reportlab.lib.utils import ImageReader
 # ----------------------------------------------------------------------
 DEFAULT_BRANDING = {
     "company_name": os.environ.get("COMPANY_NAME", "Tu Agencia SEO"),
-    "primary_color": os.environ.get("BRAND_PRIMARY_COLOR", "#1F3A5F"),
-    "accent_color": os.environ.get("BRAND_ACCENT_COLOR", "#F2A20C"),
+    "primary_color": os.environ.get("BRAND_PRIMARY_COLOR", "#1A1A1A"),
+    "accent_color": os.environ.get("BRAND_ACCENT_COLOR", "#FF7A1A"),
     "logo_path": os.environ.get("BRAND_LOGO_PATH", ""),
     "cta_text": os.environ.get(
         "BRAND_CTA_TEXT",
@@ -58,15 +91,15 @@ DEFAULT_BRANDING = {
     "contact_email": os.environ.get("BRAND_CONTACT_EMAIL", "contacto@tu-sitio.com"),
 }
 
-# Paleta
-COL_OK = colors.HexColor("#1E8E4E")
-COL_WARN = colors.HexColor("#E08600")
-COL_FAIL = colors.HexColor("#C62828")
-COL_INK = colors.HexColor("#1B2430")
-COL_MUTED = colors.HexColor("#5C6B7A")
-COL_LIGHT = colors.HexColor("#F4F6F9")
-COL_BORDER = colors.HexColor("#DBE1E8")
-COL_DARK = colors.HexColor("#2C3A4B")
+# Paleta — Identidad Agencia IDP (negro #1A1A1A + naranja #FF7A1A, grises neutros)
+COL_OK = colors.HexColor("#1E8E4E")      # verde (estado correcto, funcional)
+COL_WARN = colors.HexColor("#FF7A1A")    # naranja IDP (atención / acción)
+COL_FAIL = colors.HexColor("#C62828")    # rojo (crítico, funcional)
+COL_INK = colors.HexColor("#1A1A1A")     # negro corporativo (texto/títulos)
+COL_MUTED = colors.HexColor("#6B6B6B")   # gris neutro (texto secundario)
+COL_LIGHT = colors.HexColor("#F5F5F5")   # gris muy claro (fondos suaves)
+COL_BORDER = colors.HexColor("#E5E5E5")  # gris claro (bordes)
+COL_DARK = colors.HexColor("#1A1A1A")    # negro (encabezados de tabla)
 
 ESTADO_COLOR = {"ok": COL_OK, "warn": COL_WARN, "fail": COL_FAIL}
 ESTADO_LABEL = {"ok": "OK", "warn": "MEJORAR", "fail": "CRÍTICO"}
@@ -183,42 +216,44 @@ def _styles(b):
     def add(name, **kw):
         s.add(ParagraphStyle(name=name, **kw))
 
-    add("Eyebrow", parent=s["Normal"], fontSize=8.5, textColor=colors.white,
+    # Gris claro para metadatos sobre fondo negro de portada
+    cover_meta = colors.HexColor("#BFBFBF")
+    add("Eyebrow", parent=s["Normal"], fontName=FONT_HEAD, fontSize=8.5, textColor=colors.white,
         leading=11, alignment=TA_LEFT)
-    add("CoverTitle", parent=s["Title"], fontSize=26, leading=29,
+    add("CoverTitle", parent=s["Title"], fontName=FONT_TITLE, fontSize=27, leading=30,
         textColor=colors.white, alignment=TA_LEFT, spaceAfter=0)
-    add("CoverMeta", parent=s["Normal"], fontSize=9, leading=13,
-        textColor=colors.HexColor("#C9D4E3"))
-    add("CoverMetaBig", parent=s["Normal"], fontSize=13, leading=16,
+    add("CoverMeta", parent=s["Normal"], fontName=FONT_BODY, fontSize=9, leading=13,
+        textColor=cover_meta)
+    add("CoverMetaBig", parent=s["Normal"], fontName=FONT_HEAD, fontSize=13, leading=16,
         textColor=colors.white)
-    add("H2", parent=s["Heading2"], fontSize=15, leading=18, textColor=primary,
+    add("H2", parent=s["Heading2"], fontName=FONT_TITLE, fontSize=15, leading=18, textColor=primary,
         spaceBefore=14, spaceAfter=2)
-    add("H2sub", parent=s["Normal"], fontSize=9.5, leading=13, textColor=COL_MUTED,
+    add("H2sub", parent=s["Normal"], fontName=FONT_BODY, fontSize=9.5, leading=13, textColor=COL_MUTED,
         spaceAfter=8)
-    add("Body", parent=s["BodyText"], fontSize=9.5, leading=14, textColor=COL_INK)
-    add("BodyTight", parent=s["BodyText"], fontSize=9, leading=12.5, textColor=COL_INK)
-    add("ScoreHuge", parent=s["Normal"], fontSize=44, leading=46,
+    add("Body", parent=s["BodyText"], fontName=FONT_BODY, fontSize=9.5, leading=14, textColor=COL_INK)
+    add("BodyTight", parent=s["BodyText"], fontName=FONT_BODY, fontSize=9, leading=12.5, textColor=COL_INK)
+    add("ScoreHuge", parent=s["Normal"], fontName=FONT_HEAD, fontSize=44, leading=46,
         textColor=colors.white, alignment=TA_CENTER)
-    add("ScoreUnit", parent=s["Normal"], fontSize=10, leading=12,
-        textColor=colors.HexColor("#C9D4E3"), alignment=TA_CENTER)
-    add("ScoreLbl", parent=s["Normal"], fontSize=11, leading=13,
+    add("ScoreUnit", parent=s["Normal"], fontName=FONT_HEAD, fontSize=10, leading=12,
+        textColor=colors.HexColor("#EFEFEF"), alignment=TA_CENTER)
+    add("ScoreLbl", parent=s["Normal"], fontName=FONT_HEAD, fontSize=11, leading=13,
         textColor=colors.white, alignment=TA_CENTER)
-    add("KpiVal", parent=s["Normal"], fontSize=16, leading=18, textColor=COL_INK)
-    add("KpiLbl", parent=s["Normal"], fontSize=7.5, leading=9.5, textColor=COL_MUTED)
-    add("Pill", parent=s["Normal"], fontSize=7.5, leading=9, textColor=colors.white,
+    add("KpiVal", parent=s["Normal"], fontName=FONT_HEAD, fontSize=16, leading=18, textColor=COL_INK)
+    add("KpiLbl", parent=s["Normal"], fontName=FONT_BODY, fontSize=7.5, leading=9.5, textColor=COL_MUTED)
+    add("Pill", parent=s["Normal"], fontName=FONT_BODY, fontSize=7.5, leading=9, textColor=colors.white,
         alignment=TA_CENTER)
-    add("Badge", parent=s["Normal"], fontSize=8, leading=10, textColor=colors.white,
+    add("Badge", parent=s["Normal"], fontName=FONT_BODY, fontSize=8, leading=10, textColor=colors.white,
         alignment=TA_CENTER)
-    add("Cell", parent=s["Normal"], fontSize=8.5, leading=11.5, textColor=COL_INK)
-    add("CellMuted", parent=s["Normal"], fontSize=8, leading=11, textColor=COL_MUTED)
-    add("CellHead", parent=s["Normal"], fontSize=7.8, leading=10, textColor=colors.white)
-    add("CardTitle", parent=s["Normal"], fontSize=10.5, leading=13, textColor=COL_INK)
-    add("CardLabel", parent=s["Normal"], fontSize=7, leading=9, textColor=COL_MUTED)
-    add("CardVal", parent=s["Normal"], fontSize=8.5, leading=11, textColor=COL_INK)
-    add("CalloutTitle", parent=s["Normal"], fontSize=9.5, leading=12, textColor=colors.white)
-    add("CTA", parent=s["BodyText"], fontSize=11, leading=15, textColor=colors.white)
-    add("Caption", parent=s["Normal"], fontSize=7.5, textColor=colors.HexColor("#9AA7B4"))
-    add("Lead", parent=s["Normal"], fontSize=9.5, leading=14.5, textColor=COL_INK)
+    add("Cell", parent=s["Normal"], fontName=FONT_BODY, fontSize=8.5, leading=11.5, textColor=COL_INK)
+    add("CellMuted", parent=s["Normal"], fontName=FONT_BODY, fontSize=8, leading=11, textColor=COL_MUTED)
+    add("CellHead", parent=s["Normal"], fontName=FONT_HEAD, fontSize=7.8, leading=10, textColor=colors.white)
+    add("CardTitle", parent=s["Normal"], fontName=FONT_HEAD, fontSize=10.5, leading=13, textColor=COL_INK)
+    add("CardLabel", parent=s["Normal"], fontName=FONT_BODY, fontSize=7, leading=9, textColor=COL_MUTED)
+    add("CardVal", parent=s["Normal"], fontName=FONT_BODY, fontSize=8.5, leading=11, textColor=COL_INK)
+    add("CalloutTitle", parent=s["Normal"], fontName=FONT_HEAD, fontSize=9.5, leading=12, textColor=colors.white)
+    add("CTA", parent=s["BodyText"], fontName=FONT_BODY, fontSize=11, leading=15, textColor=colors.white)
+    add("Caption", parent=s["Normal"], fontName=FONT_BODY, fontSize=7.5, textColor=COL_MUTED)
+    add("Lead", parent=s["Normal"], fontName=FONT_BODY, fontSize=9.5, leading=14.5, textColor=COL_INK)
     return s
 
 
@@ -242,24 +277,27 @@ def _nivel_color(valor, mapa=NIVEL_COLOR, default=COL_MUTED):
     return mapa.get((valor or "").strip().lower(), default)
 
 
-def _section_header(num, titulo, subtitulo, styles, primary, width):
-    badge = Table([[Paragraph(f"<b>{num}</b>", styles["ScoreLbl"])]], colWidths=[0.8 * cm],
-                  rowHeights=[0.8 * cm])
+def _section_header(num, titulo, subtitulo, styles, primary, accent, width):
+    """Encabezado de sección: número en color de acento (marca) + título,
+    con una línea divisoria inferior para estructurar visualmente."""
+    badge = Table([[Paragraph(f"<b>{num}</b>", styles["ScoreLbl"])]], colWidths=[0.9 * cm],
+                  rowHeights=[0.9 * cm])
     badge.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), primary),
+        ("BACKGROUND", (0, 0), (-1, -1), accent),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
     ]))
     txt = [Paragraph(titulo, styles["H2"])]
     if subtitulo:
         txt.append(Paragraph(subtitulo, styles["H2sub"]))
-    row = Table([[badge, txt]], colWidths=[1.1 * cm, width - 1.1 * cm])
+    row = Table([[badge, txt]], colWidths=[1.2 * cm, width - 1.2 * cm])
     row.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (0, 0), "TOP"),
+        ("VALIGN", (0, 0), (0, 0), "MIDDLE"),
         ("VALIGN", (1, 0), (1, 0), "MIDDLE"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, -1), 1.4, primary),
     ]))
     return row
 
@@ -421,10 +459,11 @@ def generate_pdf(report, lead, output_path, branding=None):
     if branding:
         b.update(branding)
     # Sanear colores: si llegan vacíos/ inválidos, usar los por defecto
-    b["primary_color"] = _safe_hex(b.get("primary_color"), "#1F3A5F")
-    b["accent_color"] = _safe_hex(b.get("accent_color"), "#F2A20C")
+    b["primary_color"] = _safe_hex(b.get("primary_color"), "#1A1A1A")
+    b["accent_color"] = _safe_hex(b.get("accent_color"), "#FF7A1A")
     styles = _styles(b)
     primary = colors.HexColor(b["primary_color"])
+    accent = colors.HexColor(b["accent_color"])
     W = letter[0] - 3.0 * cm  # ancho útil
 
     scores = report.get("scores", {})
@@ -630,9 +669,9 @@ def generate_pdf(report, lead, output_path, branding=None):
     # =================================================================
     problemas = ai.get("problemas_criticos") or []
     if problemas:
-        story.append(PageBreak())
+        story.append(CondPageBreak(7 * cm))
         story.append(_section_header("2", "Problemas críticos",
-                                     "Acción inmediata requerida", styles, primary, W))
+                                     "Acción inmediata requerida", styles, primary, accent, W))
         story.append(Spacer(1, 0.2 * cm))
         for p in problemas[:6]:
             sev = (p.get("severidad") or "Alto")
@@ -678,10 +717,10 @@ def generate_pdf(report, lead, output_path, branding=None):
     quick = ai.get("quick_wins") or []
     geo_ai = ai.get("geo") or {}
     if quick or geo_ai:
-        story.append(PageBreak())
+        story.append(CondPageBreak(7 * cm))
     if quick:
         story.append(_section_header("3", "Quick wins",
-                                     "Impacto en menos de 30 días", styles, primary, W))
+                                     "Impacto en menos de 30 días", styles, primary, accent, W))
         story.append(Spacer(1, 0.2 * cm))
         qcards = []
         for i, q in enumerate(quick[:6], 1):
@@ -721,7 +760,7 @@ def generate_pdf(report, lead, output_path, branding=None):
     if geo_ai:
         story.append(Spacer(1, 0.2 * cm))
         story.append(_section_header("4", "Diagnóstico GEO",
-                                     "Visibilidad en ChatGPT · Gemini · Perplexity", styles, primary, W))
+                                     "Visibilidad en ChatGPT · Gemini · Perplexity", styles, primary, accent, W))
         story.append(Spacer(1, 0.15 * cm))
         if geo_ai.get("que_es"):
             story.append(Paragraph(f"<b>¿Qué es GEO y por qué importa?</b> {geo_ai['que_es']}", styles["Body"]))
@@ -739,9 +778,9 @@ def generate_pdf(report, lead, output_path, branding=None):
     # =================================================================
     # 5 · DIAGNÓSTICO TÉCNICO (MEDIDO)
     # =================================================================
-    story.append(PageBreak())
+    story.append(CondPageBreak(7 * cm))
     story.append(_section_header("5", "Diagnóstico técnico",
-                                 "Verificado directamente sobre el sitio", styles, primary, W))
+                                 "Verificado directamente sobre el sitio", styles, primary, accent, W))
     story.append(Spacer(1, 0.2 * cm))
     rows = _technical_rows(report)
     table_rows = [[r[0], r[1], r[2], r[3], r[4]] for r in rows]
@@ -767,10 +806,10 @@ def generate_pdf(report, lead, output_path, branding=None):
     comps = ai.get("competidores") or []
     kws = ai.get("keywords") or []
     if comps or kws:
-        story.append(PageBreak())
+        story.append(CondPageBreak(7 * cm))
     if comps:
         story.append(_section_header("6", "Análisis competitivo",
-                                     "Estimación experta del panorama digital del sector", styles, primary, W))
+                                     "Estimación experta del panorama digital del sector", styles, primary, accent, W))
         story.append(Spacer(1, 0.2 * cm))
         crows = [[c.get("dominio", "—"), c.get("especializacion", "—"),
                   c.get("visibilidad", "—"), c.get("seo", "—"), c.get("geo", "—")] for c in comps[:6]]
@@ -786,7 +825,7 @@ def generate_pdf(report, lead, output_path, branding=None):
     if kws:
         story.append(Spacer(1, 0.3 * cm))
         story.append(_section_header("7", "Oportunidades de keywords",
-                                     "Temas con mayor potencial de posicionamiento", styles, primary, W))
+                                     "Temas con mayor potencial de posicionamiento", styles, primary, accent, W))
         story.append(Spacer(1, 0.2 * cm))
         krows = [[k.get("keyword", "—"), k.get("intencion", "—"), k.get("volumen", "—"),
                   k.get("competencia", "—"), k.get("tipo_pagina", "—"), k.get("prioridad", "—")] for k in kws[:9]]
@@ -806,10 +845,10 @@ def generate_pdf(report, lead, output_path, branding=None):
     kpis6 = ai.get("kpis_6_meses") or []
     pasos = ai.get("proximos_pasos") or []
     if roadmap or kpis6 or pasos:
-        story.append(PageBreak())
+        story.append(CondPageBreak(7 * cm))
     if roadmap:
         story.append(_section_header("8", "Roadmap de implementación",
-                                     "Plan 30 / 60 / 90 días", styles, primary, W))
+                                     "Plan 30 / 60 / 90 días", styles, primary, accent, W))
         story.append(Spacer(1, 0.2 * cm))
         for fase in roadmap[:4]:
             items = fase.get("items")
@@ -839,7 +878,7 @@ def generate_pdf(report, lead, output_path, branding=None):
 
     if kpis6:
         story.append(Spacer(1, 0.1 * cm))
-        story.append(_section_header("9", "KPIs y metas a 6 meses", "", styles, primary, W))
+        story.append(_section_header("9", "KPIs y metas a 6 meses", "", styles, primary, accent, W))
         story.append(Spacer(1, 0.15 * cm))
         krows = [[k.get("metrica", "—"), k.get("hoy", "—"), k.get("meta", "—")] for k in kpis6[:6]]
         story.append(_generic_table(["MÉTRICA", "HOY", "META A 6 MESES"],
@@ -847,7 +886,7 @@ def generate_pdf(report, lead, output_path, branding=None):
 
     if pasos:
         story.append(Spacer(1, 0.3 * cm))
-        story.append(_section_header("10", "Próximos pasos acordados", "", styles, primary, W))
+        story.append(_section_header("10", "Próximos pasos acordados", "", styles, primary, accent, W))
         story.append(Spacer(1, 0.15 * cm))
         prows = [[str(i), p.get("accion", "—"), p.get("responsable", "—"),
                   p.get("plazo", "—"), p.get("estado", "Pendiente")]
@@ -859,9 +898,9 @@ def generate_pdf(report, lead, output_path, branding=None):
     # CONCLUSIÓN + CTA
     # =================================================================
     conclusion = ai.get("conclusion")
-    story.append(PageBreak())
+    story.append(CondPageBreak(7 * cm))
     if conclusion:
-        story.append(_section_header("11", "Conclusión ejecutiva", b["company_name"], styles, primary, W))
+        story.append(_section_header("11", "Conclusión ejecutiva", b["company_name"], styles, primary, accent, W))
         story.append(Spacer(1, 0.2 * cm))
         for parr in (conclusion.split("\n") if isinstance(conclusion, str) else []):
             if parr.strip():
