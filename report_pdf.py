@@ -137,6 +137,18 @@ def _as_str_list(v):
     return [x for x in v if isinstance(x, str) and x.strip()]
 
 
+def _safe_hex(v, default):
+    """Devuelve un color hex válido; si v viene vacío o inválido, usa default.
+    Evita romper el PDF cuando una variable de entorno de color llega vacía
+    (p.ej. al pegar '#xxxxxx' en un panel que interpreta '#' como comentario)."""
+    v = (v or "").strip()
+    try:
+        colors.HexColor(v)
+        return v
+    except Exception:
+        return default
+
+
 def _logo_flowable(path, max_w, max_h):
     """Devuelve un Image escalado para caber en max_w x max_h conservando
     la proporción original, o None si el archivo no se puede leer.
@@ -408,6 +420,9 @@ def generate_pdf(report, lead, output_path, branding=None):
     b = dict(DEFAULT_BRANDING)
     if branding:
         b.update(branding)
+    # Sanear colores: si llegan vacíos/ inválidos, usar los por defecto
+    b["primary_color"] = _safe_hex(b.get("primary_color"), "#1F3A5F")
+    b["accent_color"] = _safe_hex(b.get("accent_color"), "#F2A20C")
     styles = _styles(b)
     primary = colors.HexColor(b["primary_color"])
     W = letter[0] - 3.0 * cm  # ancho útil
