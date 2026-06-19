@@ -42,22 +42,24 @@ DEFAULT_MODELS = {
     "anthropic": "claude-haiku-4-5-20251001",
 }
 
-# El informe premium es extenso; se necesita un presupuesto amplio de salida.
-MAX_TOKENS = 8000
+# El informe premium es extenso y detallado; presupuesto amplio de salida.
+MAX_TOKENS = 12000
 
 SYSTEM_PROMPT = (
     "Eres un consultor SEO y GEO (Generative Engine Optimization) senior de una "
     "agencia digital premium, especializado en visibilidad de sitios web tanto en "
     "buscadores tradicionales (Google) como en motores de IA generativa (ChatGPT, "
-    "Gemini, Perplexity, Claude). Produces informes ejecutivos de alto nivel, "
-    "dirigidos al director o dueño del negocio (NO experto técnico). Tu estilo es "
-    "estratégico, concreto y orientado a resultados de negocio: siempre conectas "
-    "cada hallazgo con su impacto comercial (visibilidad, leads, tráfico calificado, "
-    "autoridad). Infieres el sector, el modelo de negocio y la ubicación leyendo el "
-    "contenido del sitio (title, descripción, keywords, texto). Para datos que no "
-    "puedes medir directamente (volúmenes de búsqueda, competidores, Domain Rating) "
-    "haces ESTIMACIONES razonables propias de un consultor experto, pero nunca "
-    "afirmas como medido algo que estimaste."
+    "Gemini, Perplexity, Claude). Produces informes ejecutivos EXTENSOS y MUY "
+    "DETALLADOS por los que el cliente PAGA: deben sentirse como una consultoría "
+    "profesional completa, no como un resumen. Cada hallazgo se explica a fondo "
+    "(varias frases), conectándolo con su impacto comercial (visibilidad, leads, "
+    "tráfico calificado, autoridad, ingresos). Dirigido al director o dueño del "
+    "negocio (NO experto técnico): claro, estratégico y accionable. Infieres el "
+    "sector, modelo de negocio y ubicación leyendo el contenido del sitio. Para "
+    "datos que no puedes medir (volúmenes de búsqueda, competidores, Domain Rating) "
+    "haces ESTIMACIONES razonables de consultor experto, sin afirmar como medido "
+    "algo estimado. Nunca repites la misma frase; cada punto aporta valor nuevo y "
+    "específico al sector. Evitas relleno genérico."
 )
 
 PROMPT_TEMPLATE = """Eres el consultor que redacta un INFORME DE DIAGNÓSTICO SEO + GEO PREMIUM \
@@ -89,37 +91,55 @@ contenido del sitio— redacta el informe completo. Devuelve SOLO un JSON válid
     "oportunidad_principal": "Párrafo sobre la mayor oportunidad de crecimiento.",
     "proyeccion_6_meses": "Párrafo con proyección realista a 6 meses si se ejecuta el plan."
   }},
-  "lo_que_funciona": "Frase/párrafo con lo que el sitio ya hace bien (basado en los datos medidos).",
-  "lo_que_frena": "Frase/párrafo con lo que está frenando el posicionamiento.",
+  "lo_que_funciona": "2-3 frases detallando lo que el sitio ya hace bien (basado en los datos medidos).",
+  "lo_que_frena": "2-3 frases sobre lo que está frenando el posicionamiento y por qué importa.",
+  "diagnostico_areas": [
+    {{"area": "SEO técnico", "score": 0-100, "comentario": "Frase breve del estado del área"}},
+    {{"area": "SEO On-Page", "score": 0-100, "comentario": "..."}},
+    {{"area": "Contenido", "score": 0-100, "comentario": "..."}},
+    {{"area": "Autoridad", "score": 0-100, "comentario": "..."}},
+    {{"area": "GEO / IA", "score": 0-100, "comentario": "..."}},
+    {{"area": "SEO Local", "score": 0-100, "comentario": "..."}}
+  ],
   "problemas_criticos": [
     {{
       "titulo": "Título del problema (específico al sitio)",
       "severidad": "Crítico | Alto | Medio",
       "prioridad": "Prioridad 1 | Prioridad 2 | Prioridad 3",
-      "impacto_negocio": "El efecto comercial concreto.",
-      "solucion": "La solución concreta y específica a aplicar.",
+      "impacto_negocio": "2-3 frases: el efecto comercial concreto (clientes, leads, ventas).",
+      "impacto_seo": "1-2 frases: el efecto técnico/SEO estimado (rankings, CTR, indexación).",
+      "solucion": "Solución concreta, específica y paso a paso (2-3 frases).",
       "dificultad": "Ej: 'Baja — 5 minutos' / 'Media — 2 meses'",
       "resultado_esperado": "Resultado medible esperado (ej: '+40% CTR en 30 días')"
     }}
   ],
   "quick_wins": [
-    {{"titulo": "Acción rápida", "descripcion": "Qué hacer concretamente.", "resultado": "Resultado esperado", "impacto": "Alto | Medio | Bajo", "esfuerzo": "Ej: '5 min', '1h', 'bajo'"}}
+    {{"titulo": "Acción rápida", "descripcion": "Qué hacer concretamente (2 frases).", "resultado": "Resultado esperado", "impacto": "Alto | Medio | Bajo", "esfuerzo": "Ej: '5 min', '1h', 'bajo'"}}
   ],
   "geo": {{
-    "que_es": "1-2 frases explicando GEO y por qué es crítico para ESTE negocio.",
-    "estado_actual": "Estado actual del sitio en IAs generativas, basado en los datos.",
-    "que_necesita": ["3-5 cosas concretas que el sitio necesita para aparecer en IAs"]
+    "que_es": "2-3 frases explicando GEO y por qué es crítico para ESTE negocio en su sector.",
+    "estado_actual": "2-3 frases del estado actual del sitio en IAs generativas, basado en los datos.",
+    "pregunta_prueba": "Una pregunta real que un cliente potencial le haría a ChatGPT/Gemini en este sector.",
+    "que_citan": "Qué tipo de fuentes citan las IAs (para que el dueño entienda qué falta).",
+    "que_necesita": ["4-6 cosas concretas que el sitio necesita para aparecer citado en IAs"]
   }},
   "competidores": [
     {{"dominio": "competidor estimado o 'tú' para el propio sitio", "especializacion": "Su enfoque", "visibilidad": "Baja|Media|Alta", "seo": "Básico|Bueno|Excelente", "geo": "Nulo|Básico|Parcial|Presente"}}
   ],
+  "insight_competitivo": "2-3 frases con el insight estratégico clave del panorama competitivo y dónde está la oportunidad.",
   "keywords": [
     {{"keyword": "keyword/tema oportuno", "intencion": "Transaccional|Informacional|Local", "volumen": "Rango estimado/mes (ej: '500–1K/mes')", "competencia": "Muy baja|Baja|Media|Alta", "tipo_pagina": "Homepage|Servicio|Blog|Landing local", "prioridad": "Alta|Media|Baja"}}
   ],
+  "matriz": {{
+    "ahora": ["Acciones de ALTO impacto y BAJO esfuerzo — hacer ya (3-5)"],
+    "mes_2": ["Alto impacto, dificultad media (3-5)"],
+    "mes_3": ["Alto impacto, alta dificultad (3-5)"],
+    "mes_4_6": ["Consolidación y escala (3-4)"]
+  }},
   "roadmap": [
-    {{"fase": "Días 1–30 · Fundamentos", "items": ["acción 1", "acción 2", "..."], "resultado": "Resultado esperado de la fase"}},
-    {{"fase": "Días 31–60 · Contenido y autoridad", "items": ["..."], "resultado": "..."}},
-    {{"fase": "Días 61–90 · GEO, backlinks y liderazgo", "items": ["..."], "resultado": "..."}}
+    {{"fase": "Días 1–30 · Fundamentos", "items": ["4-6 acciones concretas"], "resultado": "Resultado esperado de la fase"}},
+    {{"fase": "Días 31–60 · Contenido y autoridad", "items": ["4-6 acciones"], "resultado": "..."}},
+    {{"fase": "Días 61–90 · GEO, backlinks y liderazgo", "items": ["4-6 acciones"], "resultado": "..."}}
   ],
   "kpis_6_meses": [
     {{"metrica": "Nombre de la métrica", "hoy": "Valor/estado actual", "meta": "Meta a 6 meses"}}
@@ -127,15 +147,16 @@ contenido del sitio— redacta el informe completo. Devuelve SOLO un JSON válid
   "proximos_pasos": [
     {{"accion": "Acción acordada", "responsable": "Agencia | Cliente | Ambos", "plazo": "Ej: 'Semana 1', 'Mes 2'", "estado": "Pendiente"}}
   ],
-  "conclusion": "2-3 párrafos de conclusión ejecutiva motivadora y estratégica."
+  "conclusion": "3-4 párrafos de conclusión ejecutiva: situación, oportunidad de mercado, qué los hace únicos y un cierre motivador. Detallada y persuasiva."
 }}
 
-Reglas de cantidad y calidad:
-- badges: 3-5 · kpis_destacados: 6-8 · problemas_criticos: 3-5 (ordenados por severidad) · quick_wins: 5-6 · que_necesita: 3-5 · competidores: 4-6 (incluye el propio sitio como 'tú') · keywords: 6-8 · roadmap: exactamente 3 fases · kpis_6_meses: 5-6 · proximos_pasos: 6-8.
-- Sé MUY específico al sector inferido. Nada de frases genéricas vacías.
-- Los volúmenes de keywords, competidores y métricas son ESTIMACIONES expertas: razonables para el sector, no inventes precisión falsa.
+Reglas de cantidad y calidad (es un informe PAGO: debe ser EXTENSO y DETALLADO):
+- badges: 4-5 · kpis_destacados: 8 · diagnostico_areas: las 6 indicadas · problemas_criticos: 5-7 (ordenados por severidad) · quick_wins: 6-8 · que_necesita: 4-6 · competidores: 5-6 (incluye el propio sitio como 'tú') · keywords: 8-12 · matriz: 3-5 items por bloque · roadmap: 3 fases con 4-6 items cada una · kpis_6_meses: 5-7 · proximos_pasos: 8-12.
+- Cada campo de texto debe tener el detalle indicado (varias frases). NADA de respuestas de una línea ni frases genéricas vacías.
+- Sé MUY específico al sector y negocio inferido; usa términos reales del sector.
+- Los volúmenes de keywords, competidores y métricas son ESTIMACIONES expertas razonables; no inventes precisión falsa.
 - Texto en español, sin markdown ni viñetas dentro de los strings.
-- Responde ÚNICAMENTE con el JSON."""
+- Responde ÚNICAMENTE con el JSON, completo y válido."""
 
 
 def _build_context(report, scores, recommendations, lead):

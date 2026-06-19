@@ -484,11 +484,14 @@ def generate_pdf(report, lead, output_path, branding=None):
         "resumen_ejecutivo": _re if isinstance(_re, (dict, str)) else {},
         "lo_que_funciona": _as_str(ai.get("lo_que_funciona")),
         "lo_que_frena": _as_str(ai.get("lo_que_frena")),
+        "diagnostico_areas": _as_dict_list(ai.get("diagnostico_areas")),
         "problemas_criticos": _as_dict_list(ai.get("problemas_criticos")),
         "quick_wins": _as_dict_list(ai.get("quick_wins")),
         "geo": _as_dict(ai.get("geo")),
         "competidores": _as_dict_list(ai.get("competidores")),
+        "insight_competitivo": _as_str(ai.get("insight_competitivo")),
         "keywords": _as_dict_list(ai.get("keywords")),
+        "matriz": _as_dict(ai.get("matriz")),
         "roadmap": _as_dict_list(ai.get("roadmap")),
         "kpis_6_meses": _as_dict_list(ai.get("kpis_6_meses")),
         "proximos_pasos": _as_dict_list(ai.get("proximos_pasos")),
@@ -640,6 +643,22 @@ def generate_pdf(report, lead, output_path, branding=None):
     story.append(_score_bar("Contenido", scores.get("contenido", 0), styles, W))
     story.append(Spacer(1, 0.25 * cm))
 
+    # Desglose por área (estimación del consultor / IA)
+    areas = _as_dict_list(ai.get("diagnostico_areas"))
+    if areas:
+        story.append(Paragraph("Diagnóstico por área", styles["H2"]))
+        story.append(Paragraph("Evaluación detallada del consultor por dimensión.", styles["H2sub"]))
+        for a in areas[:6]:
+            try:
+                sc_a = int(a.get("score", 0))
+            except Exception:
+                sc_a = 0
+            story.append(_score_bar(str(a.get("area", "—")), sc_a, styles, W))
+            if a.get("comentario"):
+                story.append(Paragraph(str(a["comentario"]), styles["CellMuted"]))
+                story.append(Spacer(1, 0.08 * cm))
+        story.append(Spacer(1, 0.25 * cm))
+
     # Lo que funciona / frena
     lf, lq = ai.get("lo_que_funciona"), ai.get("lo_que_frena")
     if lf or lq:
@@ -673,7 +692,7 @@ def generate_pdf(report, lead, output_path, branding=None):
         story.append(_section_header("2", "Problemas críticos",
                                      "Acción inmediata requerida", styles, primary, accent, W))
         story.append(Spacer(1, 0.2 * cm))
-        for p in problemas[:6]:
+        for p in problemas[:8]:
             sev = (p.get("severidad") or "Alto")
             sev_col = SEV_COLOR.get(sev.lower(), COL_WARN)
             top = Table([[Paragraph(f"<b>{p.get('titulo','')}</b>", styles["CardTitle"]),
@@ -685,6 +704,8 @@ def generate_pdf(report, lead, output_path, branding=None):
             cuerpo = [top, Spacer(1, 0.1 * cm)]
             if p.get("impacto_negocio"):
                 cuerpo.append(Paragraph(f"<b>Impacto en negocio:</b> {p['impacto_negocio']}", styles["BodyTight"]))
+            if p.get("impacto_seo"):
+                cuerpo.append(Paragraph(f"<b>Impacto SEO estimado:</b> {p['impacto_seo']}", styles["BodyTight"]))
             if p.get("solucion"):
                 cuerpo.append(Paragraph(f"<b>Solución:</b> {p['solucion']}", styles["BodyTight"]))
             # fila inferior: dificultad / resultado / prioridad
@@ -723,7 +744,7 @@ def generate_pdf(report, lead, output_path, branding=None):
                                      "Impacto en menos de 30 días", styles, primary, accent, W))
         story.append(Spacer(1, 0.2 * cm))
         qcards = []
-        for i, q in enumerate(quick[:6], 1):
+        for i, q in enumerate(quick[:8], 1):
             imp = (q.get("impacto") or "Medio")
             cuerpo = [
                 Paragraph(f'<font color="{_hx(primary)}"><b>{i}. {q.get("titulo","")}</b></font>', styles["CardVal"]),
@@ -768,6 +789,18 @@ def generate_pdf(report, lead, output_path, branding=None):
         if geo_ai.get("estado_actual"):
             story.append(Paragraph(f"<b>Estado actual:</b> {geo_ai['estado_actual']}", styles["Body"]))
             story.append(Spacer(1, 0.1 * cm))
+        if geo_ai.get("pregunta_prueba"):
+            pruebatxt = f'<b>Pregunta de prueba a la IA:</b> <i>"{geo_ai["pregunta_prueba"]}"</i>'
+            if geo_ai.get("que_citan"):
+                pruebatxt += f' &nbsp; <b>Las IAs citan:</b> {geo_ai["que_citan"]}'
+            pcard = Table([[Paragraph(pruebatxt, styles["BodyTight"])]], colWidths=[W])
+            pcard.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), COL_LIGHT),
+                ("LINEBEFORE", (0, 0), (0, -1), 3, accent),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7)]))
+            story.append(pcard)
+            story.append(Spacer(1, 0.12 * cm))
         nec = geo_ai.get("que_necesita")
         nec = nec if isinstance(nec, list) else []
         if nec:
@@ -822,13 +855,16 @@ def generate_pdf(report, lead, output_path, branding=None):
             styles, pill_cols={3, 4}, pill_color_fn=_ccolor))
         story.append(Paragraph("Datos de competencia estimados por IA (no medidos con herramientas de pago).",
                                styles["Caption"]))
+        if ai.get("insight_competitivo"):
+            story.append(Spacer(1, 0.12 * cm))
+            story.append(Paragraph(f"<b>Insight estratégico:</b> {ai['insight_competitivo']}", styles["Body"]))
     if kws:
         story.append(Spacer(1, 0.3 * cm))
         story.append(_section_header("7", "Oportunidades de keywords",
                                      "Temas con mayor potencial de posicionamiento", styles, primary, accent, W))
         story.append(Spacer(1, 0.2 * cm))
         krows = [[k.get("keyword", "—"), k.get("intencion", "—"), k.get("volumen", "—"),
-                  k.get("competencia", "—"), k.get("tipo_pagina", "—"), k.get("prioridad", "—")] for k in kws[:9]]
+                  k.get("competencia", "—"), k.get("tipo_pagina", "—"), k.get("prioridad", "—")] for k in kws[:12]]
 
         def _kcolor(ci, val):
             return _nivel_color(val)
@@ -839,7 +875,37 @@ def generate_pdf(report, lead, output_path, branding=None):
         story.append(Paragraph("Volúmenes y competencia estimados por IA.", styles["Caption"]))
 
     # =================================================================
-    # 8 · ROADMAP + KPIs + PRÓXIMOS PASOS
+    # 8 · MATRIZ IMPACTO vs DIFICULTAD
+    # =================================================================
+    matriz = ai.get("matriz") or {}
+    bloques = [
+        ("Hacer AHORA — alto impacto, bajo esfuerzo", matriz.get("ahora"), accent),
+        ("Mes 2 — alto impacto, dificultad media", matriz.get("mes_2"), primary),
+        ("Mes 3 — alto impacto, alta dificultad", matriz.get("mes_3"), primary),
+        ("Mes 4–6 — consolidación y escala", matriz.get("mes_4_6"), COL_MUTED),
+    ]
+    bloques = [(t, it, c) for (t, it, c) in bloques if isinstance(it, list) and it]
+    if bloques:
+        story.append(CondPageBreak(7 * cm))
+        story.append(_section_header("8", "Matriz de impacto vs. dificultad",
+                                     "Qué priorizar y en qué orden", styles, primary, accent, W))
+        story.append(Spacer(1, 0.2 * cm))
+        for titulo, items, col in bloques:
+            head = Table([[Paragraph(f"<b>{titulo}</b>", styles["CalloutTitle"])]], colWidths=[W])
+            head.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), col),
+                                      ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                                      ("TOPPADDING", (0, 0), (-1, -1), 4),
+                                      ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
+            inner = [Paragraph(f'• {it}', styles["BodyTight"]) for it in items]
+            body = Table([[inner]], colWidths=[W])
+            body.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), COL_LIGHT),
+                                      ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                                      ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
+            story.append(KeepTogether([head, body]))
+            story.append(Spacer(1, 0.15 * cm))
+
+    # =================================================================
+    # 9 · ROADMAP + KPIs + PRÓXIMOS PASOS
     # =================================================================
     roadmap = ai.get("roadmap") or []
     kpis6 = ai.get("kpis_6_meses") or []
@@ -847,7 +913,7 @@ def generate_pdf(report, lead, output_path, branding=None):
     if roadmap or kpis6 or pasos:
         story.append(CondPageBreak(7 * cm))
     if roadmap:
-        story.append(_section_header("8", "Roadmap de implementación",
+        story.append(_section_header("9", "Roadmap de implementación",
                                      "Plan 30 / 60 / 90 días", styles, primary, accent, W))
         story.append(Spacer(1, 0.2 * cm))
         for fase in roadmap[:4]:
@@ -878,7 +944,7 @@ def generate_pdf(report, lead, output_path, branding=None):
 
     if kpis6:
         story.append(Spacer(1, 0.1 * cm))
-        story.append(_section_header("9", "KPIs y metas a 6 meses", "", styles, primary, accent, W))
+        story.append(_section_header("10", "KPIs y metas a 6 meses", "", styles, primary, accent, W))
         story.append(Spacer(1, 0.15 * cm))
         krows = [[k.get("metrica", "—"), k.get("hoy", "—"), k.get("meta", "—")] for k in kpis6[:6]]
         story.append(_generic_table(["MÉTRICA", "HOY", "META A 6 MESES"],
@@ -886,11 +952,11 @@ def generate_pdf(report, lead, output_path, branding=None):
 
     if pasos:
         story.append(Spacer(1, 0.3 * cm))
-        story.append(_section_header("10", "Próximos pasos acordados", "", styles, primary, accent, W))
+        story.append(_section_header("11", "Próximos pasos acordados", "", styles, primary, accent, W))
         story.append(Spacer(1, 0.15 * cm))
         prows = [[str(i), p.get("accion", "—"), p.get("responsable", "—"),
                   p.get("plazo", "—"), p.get("estado", "Pendiente")]
-                 for i, p in enumerate(pasos[:10], 1)]
+                 for i, p in enumerate(pasos[:12], 1)]
         story.append(_generic_table(["#", "ACCIÓN", "RESPONSABLE", "PLAZO", "ESTADO"],
                                     prows, [0.8 * cm, 8.6 * cm, 3.0 * cm, 2.2 * cm, 2.0 * cm], styles))
 
@@ -900,7 +966,7 @@ def generate_pdf(report, lead, output_path, branding=None):
     conclusion = ai.get("conclusion")
     story.append(CondPageBreak(7 * cm))
     if conclusion:
-        story.append(_section_header("11", "Conclusión ejecutiva", b["company_name"], styles, primary, accent, W))
+        story.append(_section_header("12", "Conclusión ejecutiva", b["company_name"], styles, primary, accent, W))
         story.append(Spacer(1, 0.2 * cm))
         for parr in (conclusion.split("\n") if isinstance(conclusion, str) else []):
             if parr.strip():
