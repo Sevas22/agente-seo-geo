@@ -1,0 +1,111 @@
+<!--
+  ================================================================
+  WIDGET DE RESULTADO — página a la que vuelve el usuario tras pagar
+  ================================================================
+  Pega esto en un bloque "HTML personalizado" en la PÁGINA DE RESULTADO
+  (la misma URL que pongas en STRIPE_SUCCESS_URL, p.ej.
+  https://agenciaidp.com/informe-seo-geo).
+
+  Lee el session_id de la URL, confirma el pago, genera el informe y lo
+  muestra con su descarga en PDF.
+
+  Cambia API_BASE por la URL de tu API.
+  ================================================================
+-->
+<div id="seo-res">
+  <style>
+    #seo-res, #seo-res * { box-sizing: border-box; }
+    #seo-res { --c-ink:#1A1A1A; --c-accent:#FF7A1A; --c-ok:#1E8E4E; --c-fail:#C62828;
+      max-width:560px; margin:0 auto; color:#1A1A1A;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+    #seo-res .sr-card { background:#fff; border:1px solid #E5E5E5; border-radius:16px; padding:30px; box-shadow:0 8px 30px rgba(0,0,0,.07); text-align:center; }
+    #seo-res h2 { margin:0 0 6px; font-size:23px; color:var(--c-ink); }
+    #seo-res .sr-sub { margin:0 0 18px; color:#6B6B6B; font-size:14px; }
+    #seo-res .sr-hidden { display:none; }
+    #seo-res .sr-spin { width:42px; height:42px; border:5px solid #EEE; border-top-color:var(--c-accent); border-radius:50%; margin:10px auto 18px; animation:srrot 1s linear infinite; }
+    @keyframes srrot { to { transform:rotate(360deg); } }
+    #seo-res .sr-global .n { font-size:56px; font-weight:800; line-height:1; }
+    #seo-res .sr-global .l { font-size:13px; color:#6B6B6B; }
+    #seo-res .sr-scores { display:flex; gap:10px; margin:16px 0; }
+    #seo-res .sr-score { flex:1; padding:14px 6px; border-radius:11px; background:#F5F5F5; }
+    #seo-res .sr-score .n { font-size:26px; font-weight:800; line-height:1; }
+    #seo-res .sr-score .l { font-size:11px; color:#6B6B6B; margin-top:5px; }
+    #seo-res .sr-dl { display:block; margin-top:20px; padding:15px; background:var(--c-accent); color:#fff; border-radius:11px; font-weight:800; text-decoration:none; font-size:16px; }
+    #seo-res .sr-error { padding:13px 16px; background:#FDECEA; color:var(--c-fail); border-radius:9px; font-size:14px; }
+    #seo-res .sr-note { margin-top:14px; font-size:12px; color:#8A8A8A; }
+  </style>
+
+  <div class="sr-card">
+    <!-- Cargando -->
+    <div id="sr-loading">
+      <div class="sr-spin"></div>
+      <h2>Generando tu informe…</h2>
+      <p class="sr-sub" id="sr-loading-msg">Confirmando tu pago y analizando tu sitio. Esto toma unos segundos.</p>
+    </div>
+
+    <!-- Resultado -->
+    <div id="sr-result" class="sr-hidden">
+      <h2>¡Tu diagnóstico está listo! ✅</h2>
+      <p class="sr-sub" id="sr-domain"></p>
+      <div class="sr-global"><div class="n" id="sr-global">—</div><div class="l">Puntaje global / 100</div></div>
+      <div class="sr-scores">
+        <div class="sr-score"><div class="n" id="sr-seo">—</div><div class="l">SEO técnico</div></div>
+        <div class="sr-score"><div class="n" id="sr-geo">—</div><div class="l">GEO (IA)</div></div>
+        <div class="sr-score"><div class="n" id="sr-cont">—</div><div class="l">Contenido</div></div>
+      </div>
+      <a id="sr-dl" class="sr-dl" href="#" target="_blank" rel="noopener">⬇ Descargar informe PDF completo</a>
+      <p class="sr-note">También te enviamos una copia a tu correo.</p>
+    </div>
+
+    <!-- Error -->
+    <div id="sr-fail" class="sr-hidden">
+      <h2>Hubo un problema</h2>
+      <div class="sr-error" id="sr-fail-msg"></div>
+      <p class="sr-note">Si ya pagaste, escríbenos y te enviamos tu informe.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var API_BASE = "https://agenteseo.5.161.200.242.sslip.io";
+  var $ = function (id){ return document.getElementById(id); };
+  function color(n){ return n>=80?"#1E8E4E":(n>=50?"#FF7A1A":"#C62828"); }
+  function show(id){ ["sr-loading","sr-result","sr-fail"].forEach(function(x){ $(x).classList.add("sr-hidden"); }); $(id).classList.remove("sr-hidden"); }
+  function fail(msg){ $("sr-fail-msg").textContent = msg; show("sr-fail"); }
+
+  var params = new URLSearchParams(window.location.search);
+  var sid = params.get("session_id");
+  if (!sid) { fail("No encontramos la referencia del pago en la URL."); return; }
+
+  var intentos = 0, MAX = 6;
+  function verificar() {
+    intentos++;
+    fetch(API_BASE + "/api/verificar-pago", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ session_id: sid }) })
+    .then(function (r){ return r.json().then(function (data){ return { ok:r.ok, status:r.status, data:data }; }); })
+    .then(function (res){
+      if (res.ok) {
+        var d = res.data, s = d.scores || {};
+        $("sr-domain").textContent = "Dominio analizado: " + d.dominio;
+        var g=$("sr-global"); g.textContent=s.promedio_general; g.style.color=color(s.promedio_general);
+        var a=$("sr-seo"); a.textContent=s.seo_tecnico; a.style.color=color(s.seo_tecnico);
+        var b=$("sr-geo"); b.textContent=s.geo; b.style.color=color(s.geo);
+        var c=$("sr-cont"); c.textContent=s.contenido; c.style.color=color(s.contenido);
+        $("sr-dl").href = API_BASE + d.pdf_url;
+        show("sr-result");
+      } else if (res.status === 402 && intentos < MAX) {
+        // Pago aún no confirmado por Stripe: reintentar
+        $("sr-loading-msg").textContent = "Confirmando tu pago…";
+        setTimeout(verificar, 2500);
+      } else {
+        fail((res.data && res.data.detail) || "No pudimos generar el informe. Intenta recargar la página.");
+      }
+    })
+    .catch(function (){
+      if (intentos < MAX) { setTimeout(verificar, 2500); }
+      else { fail("Error de conexión. Recarga la página o contáctanos."); }
+    });
+  }
+  verificar();
+})();
+</script>

@@ -1,0 +1,87 @@
+<!--
+  ================================================================
+  WIDGET DE PAGO — Diagnóstico SEO + GEO ($10)
+  ================================================================
+  Pega esto en un bloque "HTML personalizado" / elemento HTML de Elementor
+  en la PÁGINA DEL FORMULARIO.
+
+  Flujo: el usuario llena sus datos -> paga en Stripe -> vuelve a la
+  PÁGINA DE RESULTADO (configurada en STRIPE_SUCCESS_URL) donde se genera
+  y muestra el informe.
+
+  Cambia API_BASE por la URL de tu API.
+  ================================================================
+-->
+<div id="seo-pago">
+  <style>
+    #seo-pago, #seo-pago * { box-sizing: border-box; }
+    #seo-pago { --c-ink:#1A1A1A; --c-accent:#FF7A1A; --c-fail:#C62828;
+      max-width:540px; margin:0 auto; color:#1A1A1A;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+    #seo-pago .sp-card { background:#fff; border:1px solid #E5E5E5; border-radius:16px; padding:28px; box-shadow:0 8px 30px rgba(0,0,0,.07); }
+    #seo-pago h2 { margin:0 0 4px; font-size:23px; color:var(--c-ink); }
+    #seo-pago .sp-sub { margin:0 0 6px; color:#6B6B6B; font-size:14px; }
+    #seo-pago .sp-price { display:inline-block; margin:6px 0 18px; padding:6px 14px; background:#FFF1E6; color:var(--c-accent); border-radius:999px; font-weight:700; font-size:14px; }
+    #seo-pago label { display:block; font-size:13px; font-weight:600; margin:12px 0 5px; }
+    #seo-pago input { width:100%; padding:11px 13px; border:1px solid #D6D6D6; border-radius:9px; font-size:15px; }
+    #seo-pago input:focus { outline:none; border-color:var(--c-ink); }
+    #seo-pago .sp-row { display:flex; gap:12px; } #seo-pago .sp-row > div { flex:1; }
+    #seo-pago .sp-btn { width:100%; margin-top:22px; padding:15px; border:0; border-radius:11px; background:var(--c-accent); color:#fff; font-size:16px; font-weight:800; cursor:pointer; }
+    #seo-pago .sp-btn:disabled { opacity:.6; cursor:not-allowed; }
+    #seo-pago .sp-note { margin-top:12px; font-size:12px; color:#8A8A8A; text-align:center; }
+    #seo-pago .sp-hidden { display:none; }
+    #seo-pago .sp-error { margin-top:14px; padding:11px 14px; background:#FDECEA; color:var(--c-fail); border-radius:9px; font-size:14px; }
+    #seo-pago .sp-spin { width:18px; height:18px; border:3px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; display:inline-block; vertical-align:middle; margin-right:8px; animation:sprot .8s linear infinite; }
+    @keyframes sprot { to { transform:rotate(360deg); } }
+    #seo-pago .sp-list { margin:14px 0 4px; padding:0; list-style:none; font-size:13px; color:#444; }
+    #seo-pago .sp-list li { margin:5px 0; padding-left:22px; position:relative; }
+    #seo-pago .sp-list li::before { content:"✓"; position:absolute; left:0; color:var(--c-accent); font-weight:800; }
+  </style>
+
+  <div class="sp-card">
+    <h2>Diagnóstico SEO + GEO profesional</h2>
+    <p class="sp-sub">Informe completo de tu visibilidad en Google y en las IAs (ChatGPT, Gemini, Perplexity).</p>
+    <span class="sp-price">Pago único · $10 USD</span>
+    <ul class="sp-list">
+      <li>Análisis técnico SEO + GEO con puntajes</li>
+      <li>Problemas críticos, quick wins y plan de acción</li>
+      <li>Keywords, competencia y roadmap 30/60/90 días</li>
+      <li>Informe PDF profesional descargable</li>
+    </ul>
+    <form id="sp-form" onsubmit="return false;">
+      <div class="sp-row">
+        <div><label for="sp-nombre">Nombre *</label><input id="sp-nombre" required placeholder="Tu nombre" /></div>
+        <div><label for="sp-email">Email *</label><input id="sp-email" type="email" required placeholder="tu@correo.com" /></div>
+      </div>
+      <label for="sp-dominio">Dominio de tu sitio *</label>
+      <input id="sp-dominio" required placeholder="ejemplo.com" />
+      <div class="sp-row">
+        <div><label for="sp-empresa">Empresa</label><input id="sp-empresa" placeholder="(opcional)" /></div>
+        <div><label for="sp-telefono">Teléfono</label><input id="sp-telefono" placeholder="(opcional)" /></div>
+      </div>
+      <button type="button" class="sp-btn" id="sp-btn">Pagar $10 y generar mi informe</button>
+      <p class="sp-note">Pago seguro con Stripe · El informe se genera al confirmar el pago.</p>
+      <div id="sp-error" class="sp-error sp-hidden"></div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  var API_BASE = "https://agenteseo.5.161.200.242.sslip.io";
+  var $ = function (id){ return document.getElementById(id); };
+  var btn = $("sp-btn"), errBox = $("sp-error");
+  btn.addEventListener("click", function () {
+    errBox.classList.add("sp-hidden");
+    var payload = { nombre:$("sp-nombre").value.trim(), email:$("sp-email").value.trim(), dominio:$("sp-dominio").value.trim(), empresa:$("sp-empresa").value.trim(), telefono:$("sp-telefono").value.trim() };
+    if (!payload.nombre || !payload.email || !payload.dominio) {
+      errBox.textContent = "Completa nombre, email y dominio."; errBox.classList.remove("sp-hidden"); return;
+    }
+    btn.disabled = true; btn.innerHTML = '<span class="sp-spin"></span>Redirigiendo al pago…';
+    fetch(API_BASE + "/api/crear-sesion-pago", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(payload) })
+    .then(function (r){ return r.json().then(function (data){ if(!r.ok) throw new Error(data.detail||"No se pudo iniciar el pago."); return data; }); })
+    .then(function (data){ window.location.href = data.checkout_url; })
+    .catch(function (err){ errBox.textContent = err.message || "Ocurrió un error."; errBox.classList.remove("sp-hidden"); btn.disabled=false; btn.textContent="Pagar $10 y generar mi informe"; });
+  });
+})();
+</script>

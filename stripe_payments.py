@@ -60,11 +60,12 @@ def crear_sesion_checkout(nombre: str, email: str, dominio: str,
             "Configurala en Render -> Environment."
         )
 
-    success_url = (
-        f"{base_url}/analisis/resultado"
-        f"?session_id={{CHECKOUT_SESSION_ID}}"
-    )
-    cancel_url = f"{base_url}/analisis?cancelado=1"
+    # Página de resultado (donde se muestra el informe tras pagar). Configurable
+    # con STRIPE_SUCCESS_URL; por defecto una página del sitio WordPress.
+    success_base = os.environ.get("STRIPE_SUCCESS_URL") or f"{base_url}/informe-seo-geo"
+    sep = "&" if "?" in success_base else "?"
+    success_url = f"{success_base}{sep}session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = os.environ.get("STRIPE_CANCEL_URL") or base_url
 
     session = s.checkout.Session.create(
         mode="payment",

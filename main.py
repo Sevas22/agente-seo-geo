@@ -25,6 +25,7 @@ Ejecutar localmente:
 """
 
 import csv
+import json
 import os
 import re
 import smtplib
@@ -292,7 +293,9 @@ def crear_diagnostico(payload: DiagnosticoRequest, background_tasks: BackgroundT
 
 @app.get("/api/informe/{report_id}")
 def descargar_informe(report_id: str):
-    if not re.match(r"^[a-f0-9]{12}$", report_id):
+    # Acepta tanto los IDs del flujo gratuito (uuid hex) como los del flujo de
+    # pago (derivados del session_id de Stripe, alfanuméricos).
+    if not re.match(r"^[a-z0-9]{8,40}$", report_id):
         raise HTTPException(status_code=404, detail="Informe no encontrado")
     pdf_path = REPORTS_DIR / f"{report_id}.pdf"
     if not pdf_path.exists():
@@ -415,9 +418,25 @@ def verificar_pago(payload: VerificarPagoRequest, background_tasks: BackgroundTa
         })
 
         background_tasks.add_task(procesar_y_enviar, lead, report, pdf_path)
+
+        # Guardar el resultado para poder recargar la página sin re-procesar
+        try:
+            (REPORTS_DIR / f"{session_short}.json").write_text(
+                json.dumps({"scores": scores, "dominio": meta["dominio"],
+                            "nombre": meta["nombre"]}, ensure_ascii=False),
+                encoding="utf-8")
+        except Exception:
+            pass
     else:
-        # PDF ya existe — reconstruir scores desde leads.csv si es posible
+        # PDF ya existe — recuperar los scores guardados
+        meta_path = REPORTS_DIR / f"{session_short}.json"
         scores = {"promedio_general": 0, "seo_tecnico": 0, "geo": 0, "contenido": 0}
+        if meta_path.exists():
+            try:
+                guardado = json.loads(meta_path.read_text(encoding="utf-8"))
+                scores = guardado.get("scores", scores)
+            except Exception:
+                pass
         report = {"scores": scores, "domain": meta["dominio"]}
 
     return {
