@@ -73,14 +73,14 @@ def crear_sesion_checkout(nombre: str, email: str, dominio: str,
         customer_email=email,
         success_url=success_url,
         cancel_url=cancel_url,
+        # Muestra el cajón "Agregar código promocional" en la página de pago.
+        # Tu equipo usa un código (ej. cupón 100%) para generar el informe gratis.
+        allow_promotion_codes=True,
         metadata={
             "nombre": nombre,
             "dominio": dominio,
             "telefono": telefono or "",
             "empresa": empresa or "",
-        },
-        payment_intent_data={
-            "description": f"Diagnostico SEO & GEO — {dominio}",
         },
     )
 
@@ -106,7 +106,8 @@ def verificar_pago_y_obtener_metadata(session_id: str) -> dict:
     except s.error.InvalidRequestError as exc:
         raise ValueError(f"Session de Stripe no valida: {exc}") from exc
 
-    pagado = session.payment_status == "paid"
+    # "paid" = pago normal; "no_payment_required" = total $0 (código del 100%).
+    pagado = session.payment_status in ("paid", "no_payment_required")
 
     metadata = session.metadata or {}
     return {
