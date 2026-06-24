@@ -155,6 +155,8 @@ Reglas de cantidad y calidad (es un informe PAGO: debe ser EXTENSO y DETALLADO):
 - Cada campo de texto debe tener el detalle indicado (varias frases). NADA de respuestas de una línea ni frases genéricas vacías.
 - Sé MUY específico al sector y negocio inferido; usa términos reales del sector.
 - Los volúmenes de keywords, competidores y métricas son ESTIMACIONES expertas razonables; no inventes precisión falsa.
+- Si en los datos viene "backlinks" con disponible=true (enlaces, dominios de referencia, rank), úsalos como DATOS REALES en el análisis de autoridad, competencia y conclusión. Si no está disponible, recomienda construir backlinks pero sin inventar cifras.
+- Si viene "reputacion" con reseñas, menciónalas; si faltan, recomienda generar reseñas (Google, Trustpilot).
 - Texto en español, sin markdown ni viñetas dentro de los strings.
 - Responde ÚNICAMENTE con el JSON, completo y válido."""
 
