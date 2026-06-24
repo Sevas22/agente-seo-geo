@@ -187,6 +187,8 @@ def _build_context(report, scores, recommendations, lead):
         "llms_txt": report.get("llms_txt"),
         "geo_signals": report.get("geo_signals"),
         "structured_data": report.get("structured_data"),
+        "reputacion": report.get("reputacion"),
+        "backlinks": report.get("backlinks"),
         "content": {
             "word_count": content.get("word_count"),
             "top_keywords": content.get("top_keywords", [])[:12],

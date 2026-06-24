@@ -833,6 +833,50 @@ def generate_pdf(report, lead, output_path, branding=None):
         table_rows, [2.7 * cm, 1.7 * cm, 5.0 * cm, 5.3 * cm, 1.6 * cm],
         styles, pill_cols={1, 4}, pill_color_fn=_pcolor))
 
+    # Reputación online y autoridad (Trustpilot, reseñas, backlinks)
+    rep = report.get("reputacion") or {}
+    tp = rep.get("trustpilot") or {}
+    sp = rep.get("sitio_propio") or {}
+    bl = report.get("backlinks") or {}
+    gr = rep.get("google") or {}
+    _ED = {"ok": "OK", "warn": "MEJORAR", "fail": "FALTA"}
+    rep_rows = []
+    # Reseñas en el propio sitio (schema) — verificable gratis
+    if sp.get("rating"):
+        rep_rows.append(["Reseñas en tu sitio (schema)", "ok", f"{sp.get('rating')} estrellas · {sp.get('reviews', '?')} reseñas"])
+    else:
+        rep_rows.append(["Reseñas en tu sitio (schema)", "warn", "No detectadas — añadir schema AggregateRating"])
+    # Trustpilot — requiere API de reseñas
+    if tp.get("exists"):
+        rep_rows.append(["Trustpilot", "ok", f"{tp.get('rating', '?')} estrellas · {tp.get('reviews', '?')} reseñas"])
+    else:
+        rep_rows.append(["Trustpilot", "warn", "Requiere API de reseñas (DataForSEO) para verificar"])
+    # Google reviews — requiere API
+    if gr.get("disponible"):
+        rep_rows.append(["Google reviews", "ok", f"{gr.get('rating', '?')} estrellas · {gr.get('reviews', '?')} reseñas"])
+    else:
+        rep_rows.append(["Google reviews", "warn", "Requiere API (Google Places / DataForSEO)"])
+    # Backlinks — requiere API
+    if bl.get("disponible"):
+        rep_rows.append(["Backlinks", "ok",
+                         f"{bl.get('backlinks', '?')} enlaces · {bl.get('referring_domains', '?')} dominios de referencia"])
+        if bl.get("rank") is not None:
+            rep_rows.append(["Autoridad (rank del dominio)", "ok", str(bl.get("rank"))])
+    else:
+        rep_rows.append(["Backlinks / autoridad", "warn", "Requiere API de SEO (DataForSEO) para datos reales"])
+
+    rep_table = [[r[0], _ED.get(r[1], r[1].upper()), r[2]] for r in rep_rows]
+
+    def _repcolor(ci, val):
+        return {"OK": COL_OK, "MEJORAR": COL_WARN, "FALTA": COL_FAIL}.get(str(val), COL_MUTED)
+
+    story.append(Spacer(1, 0.35 * cm))
+    story.append(Paragraph("Reputación online y autoridad", styles["H2"]))
+    story.append(Paragraph("Reseñas (Trustpilot, Google) y perfil de enlaces.", styles["H2sub"]))
+    story.append(_generic_table(["ELEMENTO", "ESTADO", "DETALLE"], rep_table,
+                                [4.7 * cm, 2.5 * cm, 9.3 * cm], styles,
+                                pill_cols={1}, pill_color_fn=_repcolor))
+
     # =================================================================
     # 6 · COMPETIDORES + KEYWORDS
     # =================================================================

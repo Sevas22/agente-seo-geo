@@ -18,6 +18,7 @@ Requiere: requests, beautifulsoup4
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -182,6 +183,80 @@ def pagespeed_scores(url, api_key=None):
     return out
 
 
+def _extract_aggregate_rating(soup):
+    """Busca un AggregateRating en el JSON-LD de una página."""
+    for tag in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        try:
+            data = json.loads(tag.string or "{}")
+        except Exception:
+            continue
+        items = data if isinstance(data, list) else [data]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            agg = item.get("aggregateRating")
+            if not agg and item.get("@type") == "AggregateRating":
+                agg = item
+            if isinstance(agg, dict) and agg.get("ratingValue"):
+                return {
+                    "rating": agg.get("ratingValue"),
+                    "reviews": agg.get("reviewCount") or agg.get("ratingCount"),
+                }
+    return None
+
+
+def check_reputation(hostname):
+    """Reputación online (best-effort, gratis).
+    - Trustpilot: lee el perfil público del dominio (rating + nº de reseñas).
+    Si no existe o falla, devuelve exists=False (no rompe el análisis).
+    """
+    tp_url = f"https://www.trustpilot.com/review/{hostname}"
+    trustpilot = {"exists": False, "url": tp_url}
+    resp = fetch(tp_url, timeout=12)
+    if not isinstance(resp, Exception) and getattr(resp, "status_code", 0) == 200:
+        try:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            agg = _extract_aggregate_rating(soup)
+            if agg:
+                trustpilot = {"exists": True, "url": tp_url,
+                              "rating": agg["rating"], "reviews": agg["reviews"]}
+        except Exception:
+            pass
+    return {"trustpilot": trustpilot}
+
+
+def fetch_backlinks(hostname):
+    """Backlinks reales vía DataForSEO (opcional).
+    Se activa si hay DATAFORSEO_LOGIN y DATAFORSEO_PASSWORD en el entorno.
+    Si no, devuelve disponible=False con una nota.
+    """
+    login = os.environ.get("DATAFORSEO_LOGIN")
+    password = os.environ.get("DATAFORSEO_PASSWORD")
+    if not (login and password):
+        return {"disponible": False,
+                "nota": ("Análisis de backlinks no configurado. Requiere una API de "
+                         "terceros (DataForSEO, Ahrefs, SEMrush). Se activa con la clave.")}
+    try:
+        resp = requests.post(
+            "https://api.dataforseo.com/v3/backlinks/summary/live",
+            auth=(login, password),
+            json=[{"target": hostname, "internal_list_limit": 1,
+                   "backlinks_status_type": "live"}],
+            timeout=45,
+        )
+        res = resp.json()["tasks"][0]["result"][0]
+        return {
+            "disponible": True,
+            "backlinks": res.get("backlinks"),
+            "referring_domains": res.get("referring_domains"),
+            "rank": res.get("rank"),
+            "broken_backlinks": res.get("broken_backlinks"),
+            "referring_main_domains": res.get("referring_main_domains"),
+        }
+    except Exception as exc:
+        return {"disponible": False, "nota": f"No se pudo consultar backlinks: {exc}"}
+
+
 def audit_domain(domain, pagespeed_key=None, fetch_pagespeed=False):
     base_url, hostname = normalize_domain(domain)
     report = {"domain": hostname, "base_url": base_url, "fetched_at": time.strftime("%Y-%m-%d %H:%M:%S")}
@@ -295,12 +370,19 @@ def audit_domain(domain, pagespeed_key=None, fetch_pagespeed=False):
     if fetch_pagespeed:
         report["pagespeed"] = pagespeed_scores(report["final_url"], pagespeed_key)
 
-    # --- Competencia / backlinks (placeholder) ---
+    # --- Reputación online (Trustpilot + reseñas del propio sitio) ---
+    reputacion = check_reputation(hostname)
+    reputacion["sitio_propio"] = _extract_aggregate_rating(soup)  # reseñas con schema en su web
+    report["reputacion"] = reputacion
+
+    # --- Backlinks (DataForSEO opcional) ---
+    report["backlinks"] = fetch_backlinks(hostname)
+
+    # --- Nota de competencia ---
     report["competition_backlinks"] = {
         "note": (
-            "El análisis de backlinks y competidores requiere una API de terceros "
-            "(Ahrefs, SEMrush, Moz, Majestic, etc.). No incluido en esta versión gratuita; "
-            "se puede integrar como módulo adicional con la clave de API correspondiente."
+            "El análisis de competidores se estima con IA. Los backlinks reales se "
+            "obtienen de DataForSEO si está configurado."
         )
     }
 
