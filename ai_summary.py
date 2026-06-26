@@ -32,6 +32,8 @@ Variables de entorno relevantes:
 
 import json
 import os
+import re
+import time
 
 import requests
 
@@ -42,8 +44,10 @@ DEFAULT_MODELS = {
     "anthropic": "claude-haiku-4-5-20251001",
 }
 
-# El informe premium es extenso y detallado; presupuesto amplio de salida.
-MAX_TOKENS = 12000
+# Presupuesto de salida. Ajustado para caber en el límite por minuto del
+# free tier de Groq (si lo subes mucho, Groq devuelve 429 y el informe sale
+# vacío). Con un modelo de pago (Claude/OpenAI) se puede subir.
+MAX_TOKENS = int(os.environ.get("AI_MAX_TOKENS", "6000"))
 
 SYSTEM_PROMPT = (
     "Eres un consultor SEO y GEO (Generative Engine Optimization) senior de una "
@@ -151,7 +155,7 @@ contenido del sitio— redacta el informe completo. Devuelve SOLO un JSON válid
 }}
 
 Reglas de cantidad y calidad (es un informe PAGO: debe ser EXTENSO y DETALLADO):
-- badges: 4-5 · kpis_destacados: 8 · diagnostico_areas: las 6 indicadas · problemas_criticos: 5-7 (ordenados por severidad) · quick_wins: 6-8 · que_necesita: 4-6 · competidores: 5-6 (incluye el propio sitio como 'tú') · keywords: 8-12 · matriz: 3-5 items por bloque · roadmap: 3 fases con 4-6 items cada una · kpis_6_meses: 5-7 · proximos_pasos: 8-12.
+- badges: 4 · kpis_destacados: 8 · diagnostico_areas: las 6 indicadas · problemas_criticos: 4-5 (ordenados por severidad) · quick_wins: 5-6 · que_necesita: 4 · competidores: 5 (incluye el propio sitio como 'tú') · keywords: 8 · matriz: 3 items por bloque · roadmap: 3 fases con 4 items cada una · kpis_6_meses: 5 · proximos_pasos: 8.
 - Cada campo de texto debe tener el detalle indicado (varias frases). NADA de respuestas de una línea ni frases genéricas vacías.
 - Sé MUY específico al sector y negocio inferido; usa términos reales del sector.
 - Los volúmenes de keywords, competidores y métricas son ESTIMACIONES expertas razonables; no inventes precisión falsa.
@@ -263,23 +267,39 @@ def _call_groq(system, prompt, model):
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError("Falta GROQ_API_KEY (gratis en https://console.groq.com).")
-    resp = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}"},
-        json={
-            "model": model,
-            "temperature": 0.5,
-            "max_tokens": MAX_TOKENS,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
-        },
-        timeout=60,
-    )
+    body = {
+        "model": model,
+        "temperature": 0.5,
+        "max_tokens": MAX_TOKENS,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
+    }
+    # El free tier se satura (429); reintenta usando el tiempo sugerido por Groq.
+    for intento in range(3):
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json=body, timeout=90,
+        )
+        if resp.status_code == 429 and intento < 2:
+            espera = 0.0
+            try:
+                espera = float(resp.headers.get("retry-after", 0))
+            except Exception:
+                espera = 0.0
+            if not espera:
+                m = re.search(r"in ([0-9.]+)s", resp.text)
+                espera = float(m.group(1)) if m else 8.0
+            print(f"[ai_summary] Groq 429, reintentando en {espera:.0f}s (intento {intento+1})")
+            time.sleep(min(max(espera, 3.0), 30.0))
+            continue
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"].strip()
     resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"].strip()
+    return ""
 
 
 def _call_anthropic(system, prompt, model):
