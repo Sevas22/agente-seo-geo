@@ -75,7 +75,7 @@
   function fail(msg){ $("sr-fail-msg").textContent = msg; show("sr-fail"); }
 
   var params = new URLSearchParams(window.location.search);
-  var sid = params.get("session_id");
+  var sid = params.get("ref") || params.get("session_id");
   if (!sid) { fail("No encontramos la referencia del pago en la URL."); return; }
 
   var intentos = 0, MAX = 6;

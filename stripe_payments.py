@@ -62,9 +62,11 @@ def crear_sesion_checkout(nombre: str, email: str, dominio: str,
 
     # Página de resultado (donde se muestra el informe tras pagar). Configurable
     # con STRIPE_SUCCESS_URL; por defecto una página del sitio WordPress.
+    # Nota: se usa el parámetro 'ref' (no 'session_id') porque muchos firewalls
+    # de WordPress/LiteSpeed bloquean el parámetro 'session_id' (devuelven 403).
     success_base = os.environ.get("STRIPE_SUCCESS_URL") or f"{base_url}/informe-seo-geo"
     sep = "&" if "?" in success_base else "?"
-    success_url = f"{success_base}{sep}session_id={{CHECKOUT_SESSION_ID}}"
+    success_url = f"{success_base}{sep}ref={{CHECKOUT_SESSION_ID}}"
     cancel_url = os.environ.get("STRIPE_CANCEL_URL") or base_url
 
     session = s.checkout.Session.create(
