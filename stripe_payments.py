@@ -62,7 +62,13 @@ def crear_sesion_checkout(nombre: str, email: str, dominio: str,
 
     # Permite sobreescribir la URL de éxito con STRIPE_SUCCESS_URL
     success_base = os.environ.get("STRIPE_SUCCESS_URL", f"{base_url}/informe-seo-geo").rstrip("/")
-    success_url = f"{success_base}?session_id={{CHECKOUT_SESSION_ID}}"
+
+    # Nombre del parámetro de retorno. Se usa "ref" por defecto porque algunos
+    # WAF (LiteSpeed/mod_security) devuelven 403 cuando la query contiene
+    # "session_id". La página de resultado acepta tanto "ref" como "session_id".
+    success_param = os.environ.get("STRIPE_SUCCESS_PARAM", "ref").strip() or "ref"
+
+    success_url = f"{success_base}?{success_param}={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{base_url}/?cancelado=1"
 
     session = s.checkout.Session.create(

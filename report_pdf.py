@@ -28,6 +28,7 @@ from reportlab.lib.units import cm
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
     ListFlowable, ListItem, Image, HRFlowable, PageBreak, KeepTogether,
+    CondPageBreak,
 )
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
@@ -60,8 +61,35 @@ C_GRAY    = colors.HexColor("#666666")
 C_CYAN    = colors.HexColor("#29B6F6")
 
 
-def _hex(color_str):
-    return colors.HexColor(color_str)
+def _hex(color_str, fallback="#F4511E"):
+    """Convierte un color a HexColor de forma tolerante a fallos.
+
+    Si el valor viene vacío o mal formado —por ejemplo cuando el gestor de
+    entorno interpreta `#F2A20C` como comentario y la variable llega como
+    cadena vacía— se usa `fallback` en lugar de romper la generación del
+    informe completo.
+    """
+    s = (color_str or "").strip()
+    if not s:
+        s = fallback
+    if not s.startswith("#"):
+        s = "#" + s
+    try:
+        return colors.HexColor(s)
+    except Exception:
+        return colors.HexColor(fallback)
+
+
+MESES_ES = [
+    "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+]
+
+
+def _mes_es(dt=None):
+    """Devuelve 'Agosto 2026' sin depender del locale del sistema."""
+    dt = dt or datetime.now()
+    return f"{MESES_ES[dt.month - 1]} {dt.year}"
 
 
 def _score_color(score):
@@ -85,13 +113,17 @@ def _score_label(score):
 # -----------------------------------------------------------------------
 def _styles(b):
     styles = getSampleStyleSheet()
-    accent = _hex(b["accent_color"])
-    primary = _hex(b["primary_color"])
+    accent = _hex(b.get("accent_color"), "#F4511E")
+    primary = _hex(b.get("primary_color"), "#1C1C1C")
 
     styles.add(ParagraphStyle("ReportTitle", parent=styles["Title"],
-        textColor=colors.white, fontSize=26, spaceAfter=6, leading=30))
+        textColor=colors.white, fontSize=25, spaceAfter=6, leading=30,
+        alignment=TA_LEFT))
     styles.add(ParagraphStyle("ReportSubtitle", parent=styles["Normal"],
-        textColor=colors.HexColor("#CCCCCC"), fontSize=12, spaceAfter=4))
+        textColor=colors.white, fontSize=12.5, spaceAfter=4, leading=16))
+    styles.add(ParagraphStyle("CoverLabel", parent=styles["Normal"],
+        textColor=colors.HexColor("#9A9A9A"), fontSize=7.5, leading=11,
+        spaceAfter=1))
     styles.add(ParagraphStyle("SectionHeading", parent=styles["Heading2"],
         textColor=primary, spaceBefore=16, spaceAfter=6, fontSize=13,
         borderPad=2))
@@ -146,21 +178,27 @@ def _info_table(rows, col_widths=None):
     return t
 
 
+# Fondos de las celdas de estado / prioridad (badges rellenos)
+_STATUS_BG = {
+    "OK":      C_OK,
+    "MEJORAR": C_WARN,
+    "CRÍTICO": C_ERROR,
+}
+_PRIO_BG = {
+    "Alta":  C_ERROR,
+    "Media": C_WARN,
+    "Baja":  C_OK,
+    "":      colors.HexColor("#8A8A8A"),
+}
+
+
 def _status_badge(status):
-    """Retorna texto con color para OK / MEJORAR / CRÍTICO."""
-    if status == "OK":
-        return f'<font color="#2E7D32"><b>✓ OK</b></font>'
-    if status == "MEJORAR":
-        return f'<font color="#F4511E"><b>▲ MEJORAR</b></font>'
-    return f'<font color="#C62828"><b>✗ CRÍTICO</b></font>'
+    """Texto blanco centrado; el color va en el fondo de la celda."""
+    return f'<b>{status}</b>'
 
 
 def _priority_badge(p):
-    if p == "Alta":
-        return f'<font color="#C62828"><b>Alta</b></font>'
-    if p == "Media":
-        return f'<font color="#F4511E"><b>Media</b></font>'
-    return f'<font color="#2E7D32">Baja</font>'
+    return f'<b>{p}</b>' if p else "—"
 
 
 def _diagnostic_table(rows_data, col_widths=None):
@@ -173,6 +211,9 @@ def _diagnostic_table(rows_data, col_widths=None):
     hdr = ParagraphStyle("H", parent=ss["BodyText"], fontSize=8,
         fontName="Helvetica-Bold", textColor=colors.white, leading=11)
     cell = ParagraphStyle("C", parent=ss["BodyText"], fontSize=8.5, leading=12)
+    badge = ParagraphStyle("BDG", parent=ss["BodyText"], fontSize=7.5,
+        leading=11, alignment=TA_CENTER, textColor=colors.white,
+        fontName="Helvetica-Bold")
 
     cw = col_widths or [3.5*cm, 1.8*cm, 4.5*cm, 5.0*cm, 1.6*cm]
 
@@ -187,10 +228,10 @@ def _diagnostic_table(rows_data, col_widths=None):
     for elem, status, hallazgo, accion, prio in rows_data:
         data.append([
             Paragraph(str(elem), cell),
-            Paragraph(_status_badge(status), cell),
+            Paragraph(_status_badge(status), badge),
             Paragraph(str(hallazgo), cell),
             Paragraph(str(accion), cell),
-            Paragraph(_priority_badge(prio) if prio else "—", cell),
+            Paragraph(_priority_badge(prio), badge),
         ])
 
     t = Table(data, colWidths=cw)
@@ -198,16 +239,22 @@ def _diagnostic_table(rows_data, col_widths=None):
         ("BACKGROUND", (0, 0), (-1, 0), C_DARK),
         ("BOX",        (0, 0), (-1, -1), 0.5, C_BORDER),
         ("INNERGRID",  (0, 0), (-1, -1), 0.3, C_BORDER),
-        ("VALIGN",     (0, 0), (-1, -1), "TOP"),
+        ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
         ("LEFTPADDING",  (0, 0), (-1, -1), 6),
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING",   (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 5),
+        ("TOPPADDING",   (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 6),
     ]
     # Alternar filas
     for i in range(1, len(data)):
         if i % 2 == 0:
             style.append(("BACKGROUND", (0, i), (-1, i), C_LIGHT))
+
+    # Celdas de ESTADO y PRIORIDAD rellenas de color
+    for i, (_, status, _, _, prio) in enumerate(rows_data, start=1):
+        style.append(("BACKGROUND", (1, i), (1, i), _STATUS_BG.get(status, C_GRAY)))
+        style.append(("BACKGROUND", (4, i), (4, i), _PRIO_BG.get(prio, C_GRAY)))
+
     t.setStyle(TableStyle(style))
     return t
 
@@ -285,100 +332,99 @@ def generate_pdf(report, lead, output_path, branding=None):
     empresa_lead = (lead or {}).get("empresa", "")
 
     # ==================================================================
-    # 1. PORTADA
+    # 1. PORTADA — bloque oscuro único (logo + título + score)
     # ==================================================================
-    # Bloque oscuro de portada
-    cover_data = [[
-        Paragraph(
-            f'<font color="#F4511E">AGENCIA IDP · DIAGNÓSTICO SEO + GEO PREMIUM</font>',
-            styles["BodySmall"]),
-    ]]
-    cover_top = Table(cover_data, colWidths=[W])
-    cover_top.setStyle(TableStyle([
-        ("BACKGROUND", (0,0), (-1,-1), C_DARK),
-        ("LEFTPADDING",  (0,0), (-1,-1), 16),
-        ("TOPPADDING",   (0,0), (-1,-1), 20),
-        ("BOTTOMPADDING",(0,0), (-1,-1), 8),
-    ]))
-
-    # Logo + título
     logo_path = b.get("logo_path", "")
-    logo_elem = ""
+    logo_elem = None
     if logo_path and os.path.exists(logo_path):
-        logo_elem = Image(logo_path, width=3.5*cm, height=1.3*cm)
+        logo_elem = Image(logo_path, width=3.6*cm, height=1.35*cm)
 
     score_gen = scores.get("promedio_general", 0)
     sc_color  = _score_color(score_gen)
 
+    # --- Columna izquierda ---
     cover_main_left = []
     if logo_elem:
         cover_main_left.append(logo_elem)
-        cover_main_left.append(Spacer(1, 0.2*cm))
-    cover_main_left.append(Paragraph("Informe de crecimiento<br/>orgánico<br/>+ presencia en IA",
+        cover_main_left.append(Spacer(1, 0.35*cm))
+    cover_main_left.append(Paragraph(
+        "AGENCIA IDP · DIAGNÓSTICO SEO + GEO PREMIUM",
+        ParagraphStyle("Eyebrow", parent=styles["BodySmall"],
+            textColor=colors.white, fontName="Helvetica-Bold",
+            fontSize=8, leading=11)))
+    cover_main_left.append(Spacer(1, 0.25*cm))
+    cover_main_left.append(Paragraph(
+        "Informe de crecimiento<br/>orgánico<br/>+ presencia en IA",
         styles["ReportTitle"]))
-    cover_main_left.append(Spacer(1, 0.3*cm))
+    cover_main_left.append(Spacer(1, 0.35*cm))
     cover_main_left.append(Paragraph(
-        f'<font color="#888888">FECHA DE ANÁLISIS</font>', styles["BodySmall"]))
+        "FECHA DE ANÁLISIS", styles["CoverLabel"]))
+    cover_main_left.append(Paragraph(_mes_es(), styles["ReportSubtitle"]))
+    cover_main_left.append(Spacer(1, 0.15*cm))
     cover_main_left.append(Paragraph(
-        datetime.now().strftime("%B %Y").capitalize(), styles["ReportSubtitle"]))
-    cover_main_left.append(Paragraph(
-        f'<font color="#888888">DOMINIO ANALIZADO</font>', styles["BodySmall"]))
-    cover_main_left.append(Paragraph(
-        f'<b>{domain}</b>', styles["ReportSubtitle"]))
+        "DOMINIO ANALIZADO", styles["CoverLabel"]))
+    cover_main_left.append(Paragraph(f"<b>{domain}</b>", styles["ReportSubtitle"]))
     if nombre_lead:
         etiqueta = nombre_lead + (f" — {empresa_lead}" if empresa_lead else "")
+        cover_main_left.append(Spacer(1, 0.1*cm))
         cover_main_left.append(Paragraph(
-            f'Preparado para: {etiqueta}', styles["BodySmall"]))
+            f"Preparado para: {etiqueta}",
+            ParagraphStyle("PreparedFor", parent=styles["BodySmall"],
+                textColor=colors.HexColor("#9A9A9A"), fontSize=8.5)))
 
-    # Score box derecho
-    sc_hex = sc_color.hexval()[2:]
+    # --- Caja de score (color sólido según puntaje) ---
     score_box_content = [
-        Paragraph(f'<font color="#{sc_hex}"><b>{score_gen}</b></font>',
-            styles["ScoreCover"]),
+        Paragraph(f"<b>{score_gen}</b>", styles["ScoreCover"]),
         Paragraph("/ 100", ParagraphStyle("sl", parent=styles["BodySmall"],
-            alignment=TA_CENTER, textColor=colors.HexColor("#AAAAAA"), fontSize=11)),
+            alignment=TA_CENTER, textColor=colors.HexColor("#EAEAEA"), fontSize=10)),
+        Spacer(1, 2),
         Paragraph("Score SEO + GEO", ParagraphStyle("sl2", parent=styles["BodySmall"],
             alignment=TA_CENTER, textColor=colors.white, fontSize=9,
             fontName="Helvetica-Bold")),
-        Spacer(1, 4),
-        Table([[Paragraph(_score_label(score_gen),
-            ParagraphStyle("sl3", parent=styles["BodySmall"],
-                alignment=TA_CENTER, textColor=C_DARK,
-                fontName="Helvetica-Bold", fontSize=10))]],
-            colWidths=[3.8*cm]),
     ]
-    score_box_content[-1].setStyle(TableStyle([
-        ("BACKGROUND", (0,0), (-1,-1), sc_color),
-        ("TOPPADDING",   (0,0),(-1,-1), 5),
-        ("BOTTOMPADDING",(0,0),(-1,-1), 5),
-    ]))
-    score_box = Table([[c] for c in score_box_content], colWidths=[4.2*cm])
-    score_box.setStyle(TableStyle([
-        ("BOX",          (0,0),(-1,-1), 0.5, colors.HexColor("#444444")),
-        ("BACKGROUND",   (0,0),(-1,-1), colors.HexColor("#2A2A2A")),
+    score_inner = Table([[c] for c in score_box_content], colWidths=[4.3*cm])
+    score_inner.setStyle(TableStyle([
+        ("BACKGROUND",   (0,0),(-1,-1), sc_color),
         ("ALIGN",        (0,0),(-1,-1), "CENTER"),
-        ("TOPPADDING",   (0,0),(-1,-1), 10),
-        ("BOTTOMPADDING",(0,0),(-1,-1), 10),
+        ("TOPPADDING",   (0,0),(-1,-1), 2),
+        ("BOTTOMPADDING",(0,0),(-1,-1), 2),
         ("LEFTPADDING",  (0,0),(-1,-1), 6),
         ("RIGHTPADDING", (0,0),(-1,-1), 6),
+    ]))
+    score_label_row = Table([[Paragraph(_score_label(score_gen),
+        ParagraphStyle("sl3", parent=styles["BodySmall"],
+            alignment=TA_CENTER, textColor=colors.white,
+            fontName="Helvetica-Bold", fontSize=10))]], colWidths=[4.3*cm])
+    score_label_row.setStyle(TableStyle([
+        ("BACKGROUND",   (0,0),(-1,-1), colors.HexColor("#14213D")),
+        ("TOPPADDING",   (0,0),(-1,-1), 6),
+        ("BOTTOMPADDING",(0,0),(-1,-1), 6),
+    ]))
+    score_box = Table([[score_inner], [score_label_row]], colWidths=[4.3*cm])
+    score_box.setStyle(TableStyle([
+        ("LEFTPADDING",  (0,0),(-1,-1), 0),
+        ("RIGHTPADDING", (0,0),(-1,-1), 0),
+        ("TOPPADDING",   (0,0),(-1,-1), 0),
+        ("BOTTOMPADDING",(0,0),(-1,-1), 0),
     ]))
 
     cover_main = Table(
         [[cover_main_left, score_box]],
-        colWidths=[11.5*cm, 4.5*cm],
+        colWidths=[11.4*cm, 5.1*cm],
     )
     cover_main.setStyle(TableStyle([
         ("BACKGROUND",   (0,0), (-1,-1), C_DARK),
-        ("VALIGN",       (0,0), (-1,-1), "MIDDLE"),
-        ("LEFTPADDING",  (0,0), (0,-1),  16),
-        ("RIGHTPADDING", (0,0), (-1,-1), 16),
-        ("TOPPADDING",   (0,0), (-1,-1), 14),
-        ("BOTTOMPADDING",(0,0), (-1,-1), 20),
+        ("VALIGN",       (0,0), (0,-1),  "TOP"),
+        ("VALIGN",       (1,0), (1,-1),  "MIDDLE"),
+        ("ALIGN",        (1,0), (1,-1),  "RIGHT"),
+        ("LEFTPADDING",  (0,0), (0,-1),  22),
+        ("RIGHTPADDING", (0,0), (-1,-1), 22),
+        ("TOPPADDING",   (0,0), (-1,-1), 26),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 26),
     ]))
 
-    story.append(cover_top)
     story.append(cover_main)
-    story.append(Spacer(1, 0.5*cm))
+    story.append(Spacer(1, 0.7*cm))
 
     # Barras de scores por área
     story.append(Paragraph("Estado general por área",
@@ -393,10 +439,13 @@ def generate_pdf(report, lead, output_path, branding=None):
         sc_h = sc.hexval()[2:]
         bar_total = 10.5*cm
         filled = max(0.3*cm, bar_total * score / 100)
-        bar_fill = Table([[""]], colWidths=[filled])
+        rest   = max(0.01*cm, bar_total - filled)
+        # Barra con track de fondo: relleno + resto en gris claro
+        bar_fill = Table([["", ""]], colWidths=[filled, rest])
         bar_fill.setStyle(TableStyle([
-            ("BACKGROUND", (0,0),(-1,-1), sc),
-            ("ROWHEIGHT",  (0,0),(-1,-1), 14),
+            ("BACKGROUND", (0,0),(0,0), sc),
+            ("BACKGROUND", (1,0),(1,0), colors.HexColor("#ECECEC")),
+            ("ROWHEIGHT",  (0,0),(-1,-1), 13),
             ("LEFTPADDING",  (0,0),(-1,-1), 0),
             ("RIGHTPADDING", (0,0),(-1,-1), 0),
             ("TOPPADDING",   (0,0),(-1,-1), 0),
@@ -634,32 +683,41 @@ def generate_pdf(report, lead, output_path, branding=None):
         Paragraph("ESTADO", hs),
         Paragraph("DETALLE", hs),
     ]
+    rep_badge = ParagraphStyle("rb", parent=ss2["BodyText"], fontSize=7.5,
+        leading=11, alignment=TA_CENTER, textColor=colors.white,
+        fontName="Helvetica-Bold")
+
     rep_rows = [rep_header]
     for elem, status, detalle in rep_data:
         rep_rows.append([
             Paragraph(elem, cs),
-            Paragraph(_status_badge(status), cs),
+            Paragraph(_status_badge(status), rep_badge),
             Paragraph(detalle, cs),
         ])
     rep_t = Table(rep_rows, colWidths=[4.5*cm, 2.2*cm, 9.3*cm])
-    rep_t.setStyle(TableStyle([
+    rep_style = [
         ("BACKGROUND",   (0,0),(-1,0),  C_DARK),
         ("BOX",          (0,0),(-1,-1), 0.5, C_BORDER),
         ("INNERGRID",    (0,0),(-1,-1), 0.3, C_BORDER),
-        ("VALIGN",       (0,0),(-1,-1), "TOP"),
+        ("VALIGN",       (0,0),(-1,-1), "MIDDLE"),
         ("LEFTPADDING",  (0,0),(-1,-1), 7),
         ("RIGHTPADDING", (0,0),(-1,-1), 7),
-        ("TOPPADDING",   (0,0),(-1,-1), 5),
-        ("BOTTOMPADDING",(0,0),(-1,-1), 5),
-    ]))
+        ("TOPPADDING",   (0,0),(-1,-1), 6),
+        ("BOTTOMPADDING",(0,0),(-1,-1), 6),
+    ]
     for i in range(2, len(rep_rows), 2):
-        rep_t.setStyle(TableStyle([("BACKGROUND", (0,i),(-1,i), C_LIGHT)]))
+        rep_style.append(("BACKGROUND", (0,i),(-1,i), C_LIGHT))
+    for i, (_, status, _) in enumerate(rep_data, start=1):
+        rep_style.append(("BACKGROUND", (1,i),(1,i),
+                          _STATUS_BG.get(status, C_GRAY)))
+    rep_t.setStyle(TableStyle(rep_style))
     story.append(rep_t)
 
     # ==================================================================
     # 5. SEÑALES GEO — VISIBILIDAD EN IA
     # ==================================================================
-    story.append(PageBreak())
+    story.append(Spacer(1, 0.5*cm))
+    story.append(CondPageBreak(9*cm))
     section("Señales GEO — Visibilidad en motores de IA generativa",
             "ChatGPT · Gemini · Perplexity · AI Overviews")
 
@@ -727,8 +785,8 @@ def generate_pdf(report, lead, output_path, branding=None):
     # ==================================================================
     # 6. ANÁLISIS DE CONTENIDO Y PALABRAS CLAVE
     # ==================================================================
-    story.append(Spacer(1, 0.3*cm))
-    story.append(PageBreak())
+    story.append(Spacer(1, 0.5*cm))
+    story.append(CondPageBreak(9*cm))
     section("Análisis de contenido y palabras clave",
             "Análisis de la página principal")
 
@@ -834,7 +892,8 @@ def generate_pdf(report, lead, output_path, branding=None):
     # ==================================================================
     # 8. PLAN DE ACCIÓN PRIORIZADO
     # ==================================================================
-    story.append(PageBreak())
+    story.append(Spacer(1, 0.5*cm))
+    story.append(CondPageBreak(10*cm))
     section("Plan de acción priorizado",
             "Ordenado por impacto y facilidad de implementación")
     story.append(Spacer(1, 0.2*cm))
