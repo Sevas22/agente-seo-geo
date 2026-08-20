@@ -2,28 +2,20 @@
 """
 report_pdf.py
 --------------
-Genera el informe de diagnóstico SEO & GEO PREMIUM en PDF, con la marca de
-la empresa, a partir del diccionario `report` producido por
-`seo_geo_audit.audit_domain()` (con `scores` y `recommendations`) y, si está
-disponible, `report["ai_summary"]` con el análisis estratégico de IA.
+Genera el informe de diagnóstico SEO & GEO en PDF, completo y detallado,
+a partir del diccionario `report` producido por seo_geo_audit.audit_domain().
 
-Estructura (inspirada en un informe consultor premium):
-    1. Portada: marca + score global + badges + KPIs + resumen ejecutivo +
-       diagnóstico por área + lo que funciona / lo que frena.
-    2. Problemas críticos (impacto · solución · dificultad · resultado).
-    3. Quick wins (<30 días) + diagnóstico GEO.
-    4. Diagnóstico técnico (tabla Elemento·Estado·Hallazgo·Acción·Prioridad).
-    5. Análisis competitivo + oportunidades de keywords.
-    6. Roadmap 30/60/90 + KPIs a 6 meses + próximos pasos.
-    7. Conclusión ejecutiva.
-
-Las secciones estratégicas (2, 3, 5, 6, 7 y partes de la 1) provienen de la
-IA y solo se renderizan si están presentes. Los datos técnicos (4 y los
-puntajes) son siempre medidos por el motor, sin IA.
-
-Uso:
-    from report_pdf import generate_pdf
-    generate_pdf(report, lead, "informe.pdf", branding=BRANDING)
+Secciones generadas:
+  1. Portada con scores y estado general
+  2. Resumen ejecutivo (IA o plantilla automática)
+  3. Diagnóstico técnico SEO (tabla detallada)
+  4. Señales GEO — visibilidad en IA generativa
+  5. Análisis de contenido y palabras clave
+  6. Estructura del sitio (enlaces, encabezados)
+  7. Presencia social (Open Graph)
+  8. Plan de acción priorizado
+  9. Roadmap 30 / 60 / 90 días
+ 10. CTA final
 """
 
 import os
@@ -35,1008 +27,977 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    Image, HRFlowable, PageBreak, CondPageBreak, KeepTogether,
+    ListFlowable, ListItem, Image, HRFlowable, PageBreak, KeepTogether,
 )
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
-from reportlab.lib.utils import ImageReader
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfbase.pdfmetrics import registerFontFamily
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
-
-# ----------------------------------------------------------------------
-# Fuentes de marca (Space Grotesk para títulos, Inter para texto).
-# Si no se pueden cargar, se usa Helvetica (no rompe nada).
-# ----------------------------------------------------------------------
-_FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
-FONT_TITLE = "Helvetica-Bold"     # títulos (Space Grotesk Bold)
-FONT_HEAD = "Helvetica-Bold"      # encabezados (Space Grotesk Bold)
-FONT_BODY = "Helvetica"           # texto (Inter Regular)
-
-
-def _register_fonts():
-    global FONT_TITLE, FONT_HEAD, FONT_BODY
-    try:
-        pdfmetrics.registerFont(TTFont("Inter", os.path.join(_FONTS_DIR, "Inter-Regular.ttf")))
-        pdfmetrics.registerFont(TTFont("Inter-Bold", os.path.join(_FONTS_DIR, "Inter-Bold.ttf")))
-        pdfmetrics.registerFont(TTFont("SpaceGrotesk", os.path.join(_FONTS_DIR, "SpaceGrotesk-Medium.ttf")))
-        pdfmetrics.registerFont(TTFont("SpaceGrotesk-Bold", os.path.join(_FONTS_DIR, "SpaceGrotesk-Bold.ttf")))
-        registerFontFamily("Inter", normal="Inter", bold="Inter-Bold", italic="Inter", boldItalic="Inter-Bold")
-        registerFontFamily("SpaceGrotesk", normal="SpaceGrotesk", bold="SpaceGrotesk-Bold",
-                           italic="SpaceGrotesk", boldItalic="SpaceGrotesk-Bold")
-        FONT_TITLE = "SpaceGrotesk-Bold"
-        FONT_HEAD = "SpaceGrotesk"   # familia: usa Bold con <b>
-        FONT_BODY = "Inter"
-    except Exception as exc:
-        print(f"[report_pdf] No se cargaron las fuentes de marca, se usa Helvetica: {exc}")
-
-
-_register_fonts()
-
-
-# ----------------------------------------------------------------------
-# Branding
-# ----------------------------------------------------------------------
+# -----------------------------------------------------------------------
+# Branding por defecto
+# -----------------------------------------------------------------------
 DEFAULT_BRANDING = {
-    "company_name": os.environ.get("COMPANY_NAME", "Tu Agencia SEO"),
-    "primary_color": os.environ.get("BRAND_PRIMARY_COLOR", "#1A1A1A"),
-    "accent_color": os.environ.get("BRAND_ACCENT_COLOR", "#FF7A1A"),
+    "company_name": os.environ.get("COMPANY_NAME", "Agencia IDP"),
+    "primary_color": os.environ.get("BRAND_PRIMARY_COLOR", "#1C1C1C"),
+    "accent_color": os.environ.get("BRAND_ACCENT_COLOR", "#F4511E"),
+    "cyan_color": "#29B6F6",
     "logo_path": os.environ.get("BRAND_LOGO_PATH", ""),
     "cta_text": os.environ.get(
         "BRAND_CTA_TEXT",
         "¿Quieres que ejecutemos este plan contigo? Agenda una sesión de "
         "estrategia y empecemos por los quick wins de la semana 1.",
     ),
-    "cta_url": os.environ.get("BRAND_CTA_URL", "https://tu-sitio.com/contacto"),
-    "contact_email": os.environ.get("BRAND_CONTACT_EMAIL", "contacto@tu-sitio.com"),
+    "cta_url": os.environ.get("BRAND_CTA_URL", "https://agenciaidp.co"),
+    "contact_email": os.environ.get("BRAND_CONTACT_EMAIL", "seo@agenciaidp.com"),
 }
 
-# Paleta — Identidad Agencia IDP (negro #1A1A1A + naranja #FF7A1A, grises neutros)
-COL_OK = colors.HexColor("#1E8E4E")      # verde (estado correcto, funcional)
-COL_WARN = colors.HexColor("#FF7A1A")    # naranja IDP (atención / acción)
-COL_FAIL = colors.HexColor("#C62828")    # rojo (crítico, funcional)
-COL_INK = colors.HexColor("#1A1A1A")     # negro corporativo (texto/títulos)
-COL_MUTED = colors.HexColor("#6B6B6B")   # gris neutro (texto secundario)
-COL_LIGHT = colors.HexColor("#F5F5F5")   # gris muy claro (fondos suaves)
-COL_BORDER = colors.HexColor("#E5E5E5")  # gris claro (bordes)
-COL_DARK = colors.HexColor("#1A1A1A")    # negro (encabezados de tabla)
+# Colores comunes
+C_OK      = colors.HexColor("#2E7D32")
+C_WARN    = colors.HexColor("#F4511E")
+C_ERROR   = colors.HexColor("#C62828")
+C_LIGHT   = colors.HexColor("#F5F5F5")
+C_BORDER  = colors.HexColor("#E0E0E0")
+C_DARK    = colors.HexColor("#1C1C1C")
+C_GRAY    = colors.HexColor("#666666")
+C_CYAN    = colors.HexColor("#29B6F6")
 
-ESTADO_COLOR = {"ok": COL_OK, "warn": COL_WARN, "fail": COL_FAIL}
-ESTADO_LABEL = {"ok": "OK", "warn": "MEJORAR", "fail": "CRÍTICO"}
 
-SEV_COLOR = {"crítico": COL_FAIL, "critico": COL_FAIL, "alto": COL_WARN,
-             "medio": COL_WARN, "bajo": COL_OK}
-NIVEL_COLOR = {"alto": COL_OK, "media": COL_WARN, "medio": COL_WARN,
-               "baja": COL_MUTED, "bajo": COL_MUTED,
-               "alta": COL_FAIL, "máxima": COL_FAIL, "maxima": COL_FAIL,
-               "muy baja": COL_OK, "excelente": COL_OK, "bueno": COL_OK,
-               "básico": COL_WARN, "basico": COL_WARN, "nulo": COL_FAIL,
-               "parcial": COL_WARN, "presente": COL_OK}
-ESFUERZO_COLOR = {"bajo": COL_OK, "baja": COL_OK, "medio": COL_WARN,
-                  "media": COL_WARN, "alto": COL_FAIL, "alta": COL_FAIL}
-
-MESES = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
-         "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+def _hex(color_str):
+    return colors.HexColor(color_str)
 
 
 def _score_color(score):
-    if score >= 80:
-        return COL_OK
+    if score >= 75:
+        return C_OK
     if score >= 50:
-        return COL_WARN
-    return COL_FAIL
+        return C_WARN
+    return C_ERROR
 
 
-def _score_label_auto(p):
-    if p >= 85:
-        return "Excelente"
-    if p >= 70:
+def _score_label(score):
+    if score >= 75:
         return "Bueno"
-    if p >= 50:
-        return "Aceptable"
-    if p >= 35:
-        return "Limitado"
+    if score >= 50:
+        return "Regular"
     return "Crítico"
 
 
-def _fecha_legible(fetched_at):
-    try:
-        dt = datetime.strptime((fetched_at or "")[:10], "%Y-%m-%d")
-        return f"{MESES[dt.month]} {dt.year}"
-    except Exception:
-        return datetime.now().strftime("%B %Y")
-
-
-def _hx(c):
-    return "#" + c.hexval()[2:]
-
-
-# --- Coerción defensiva de la salida de la IA (puede venir malformada) ---
-def _as_dict(v):
-    return v if isinstance(v, dict) else {}
-
-
-def _as_str(v):
-    return v if isinstance(v, str) else ""
-
-
-def _as_dict_list(v):
-    return [x for x in v if isinstance(x, dict)] if isinstance(v, list) else []
-
-
-def _as_str_list(v):
-    if not isinstance(v, list):
-        return []
-    return [x for x in v if isinstance(x, str) and x.strip()]
-
-
-def _safe_hex(v, default):
-    """Devuelve un color hex válido; si v viene vacío o inválido, usa default.
-    Evita romper el PDF cuando una variable de entorno de color llega vacía
-    (p.ej. al pegar '#xxxxxx' en un panel que interpreta '#' como comentario)."""
-    v = (v or "").strip()
-    try:
-        colors.HexColor(v)
-        return v
-    except Exception:
-        return default
-
-
-def _logo_flowable(path, max_w, max_h):
-    """Devuelve un Image escalado para caber en max_w x max_h conservando
-    la proporción original, o None si el archivo no se puede leer.
-    Si `path` es relativo, también se intenta resolver respecto a la carpeta
-    del proyecto (útil al desplegar en Linux/Render)."""
-    if not path:
-        return None
-    if not os.path.exists(path):
-        alt = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
-        if os.path.exists(alt):
-            path = alt
-        else:
-            return None
-    try:
-        iw, ih = ImageReader(path).getSize()
-        ratio = iw / float(ih)
-        w, h = max_w, max_w / ratio
-        if h > max_h:
-            h, w = max_h, max_h * ratio
-        return Image(path, width=w, height=h)
-    except Exception:
-        return None
-
-
-# ----------------------------------------------------------------------
+# -----------------------------------------------------------------------
 # Estilos
-# ----------------------------------------------------------------------
+# -----------------------------------------------------------------------
 def _styles(b):
-    s = getSampleStyleSheet()
-    primary = colors.HexColor(b["primary_color"])
+    styles = getSampleStyleSheet()
+    accent = _hex(b["accent_color"])
+    primary = _hex(b["primary_color"])
 
-    def add(name, **kw):
-        s.add(ParagraphStyle(name=name, **kw))
-
-    # Gris claro para metadatos sobre fondo negro de portada
-    cover_meta = colors.HexColor("#BFBFBF")
-    add("Eyebrow", parent=s["Normal"], fontName=FONT_HEAD, fontSize=8.5, textColor=colors.white,
-        leading=11, alignment=TA_LEFT)
-    add("CoverTitle", parent=s["Title"], fontName=FONT_TITLE, fontSize=27, leading=30,
-        textColor=colors.white, alignment=TA_LEFT, spaceAfter=0)
-    add("CoverMeta", parent=s["Normal"], fontName=FONT_BODY, fontSize=9, leading=13,
-        textColor=cover_meta)
-    add("CoverMetaBig", parent=s["Normal"], fontName=FONT_HEAD, fontSize=13, leading=16,
-        textColor=colors.white)
-    add("H2", parent=s["Heading2"], fontName=FONT_TITLE, fontSize=15, leading=18, textColor=primary,
-        spaceBefore=14, spaceAfter=2)
-    add("H2sub", parent=s["Normal"], fontName=FONT_BODY, fontSize=9.5, leading=13, textColor=COL_MUTED,
-        spaceAfter=8)
-    add("Body", parent=s["BodyText"], fontName=FONT_BODY, fontSize=9.5, leading=14, textColor=COL_INK)
-    add("BodyTight", parent=s["BodyText"], fontName=FONT_BODY, fontSize=9, leading=12.5, textColor=COL_INK)
-    add("ScoreHuge", parent=s["Normal"], fontName=FONT_HEAD, fontSize=44, leading=46,
-        textColor=colors.white, alignment=TA_CENTER)
-    add("ScoreUnit", parent=s["Normal"], fontName=FONT_HEAD, fontSize=10, leading=12,
-        textColor=colors.HexColor("#EFEFEF"), alignment=TA_CENTER)
-    add("ScoreLbl", parent=s["Normal"], fontName=FONT_HEAD, fontSize=11, leading=13,
-        textColor=colors.white, alignment=TA_CENTER)
-    add("KpiVal", parent=s["Normal"], fontName=FONT_HEAD, fontSize=16, leading=18, textColor=COL_INK)
-    add("KpiLbl", parent=s["Normal"], fontName=FONT_BODY, fontSize=7.5, leading=9.5, textColor=COL_MUTED)
-    add("Pill", parent=s["Normal"], fontName=FONT_BODY, fontSize=7.5, leading=9, textColor=colors.white,
-        alignment=TA_CENTER)
-    add("Badge", parent=s["Normal"], fontName=FONT_BODY, fontSize=8, leading=10, textColor=colors.white,
-        alignment=TA_CENTER)
-    add("Cell", parent=s["Normal"], fontName=FONT_BODY, fontSize=8.5, leading=11.5, textColor=COL_INK)
-    add("CellMuted", parent=s["Normal"], fontName=FONT_BODY, fontSize=8, leading=11, textColor=COL_MUTED)
-    add("CellHead", parent=s["Normal"], fontName=FONT_HEAD, fontSize=7.8, leading=10, textColor=colors.white)
-    add("CardTitle", parent=s["Normal"], fontName=FONT_HEAD, fontSize=10.5, leading=13, textColor=COL_INK)
-    add("CardLabel", parent=s["Normal"], fontName=FONT_BODY, fontSize=7, leading=9, textColor=COL_MUTED)
-    add("CardVal", parent=s["Normal"], fontName=FONT_BODY, fontSize=8.5, leading=11, textColor=COL_INK)
-    add("CalloutTitle", parent=s["Normal"], fontName=FONT_HEAD, fontSize=9.5, leading=12, textColor=colors.white)
-    add("CTA", parent=s["BodyText"], fontName=FONT_BODY, fontSize=11, leading=15, textColor=colors.white)
-    add("Caption", parent=s["Normal"], fontName=FONT_BODY, fontSize=7.5, textColor=COL_MUTED)
-    add("Lead", parent=s["Normal"], fontName=FONT_BODY, fontSize=9.5, leading=14.5, textColor=COL_INK)
-    return s
+    styles.add(ParagraphStyle("ReportTitle", parent=styles["Title"],
+        textColor=colors.white, fontSize=26, spaceAfter=6, leading=30))
+    styles.add(ParagraphStyle("ReportSubtitle", parent=styles["Normal"],
+        textColor=colors.HexColor("#CCCCCC"), fontSize=12, spaceAfter=4))
+    styles.add(ParagraphStyle("SectionHeading", parent=styles["Heading2"],
+        textColor=primary, spaceBefore=16, spaceAfter=6, fontSize=13,
+        borderPad=2))
+    styles.add(ParagraphStyle("SubHeading", parent=styles["Heading3"],
+        textColor=C_GRAY, spaceBefore=10, spaceAfter=4, fontSize=11))
+    styles.add(ParagraphStyle("Body", parent=styles["BodyText"],
+        fontSize=9.5, leading=14))
+    styles.add(ParagraphStyle("BodySmall", parent=styles["BodyText"],
+        fontSize=8.5, leading=12, textColor=C_GRAY))
+    styles.add(ParagraphStyle("CTA", parent=styles["BodyText"],
+        fontSize=11, leading=15, textColor=colors.white))
+    styles.add(ParagraphStyle("Caption", parent=styles["Normal"],
+        fontSize=7.5, textColor=C_GRAY))
+    styles.add(ParagraphStyle("ScoreCover", parent=styles["Normal"],
+        fontSize=44, alignment=TA_CENTER, textColor=colors.white,
+        leading=48, fontName="Helvetica-Bold"))
+    styles.add(ParagraphStyle("ScoreLabel", parent=styles["Normal"],
+        fontSize=9, alignment=TA_CENTER, textColor=C_GRAY))
+    styles.add(ParagraphStyle("Keyword", parent=styles["Normal"],
+        fontSize=9, textColor=C_DARK))
+    styles.add(ParagraphStyle("RoadmapTitle", parent=styles["Normal"],
+        fontSize=10, fontName="Helvetica-Bold", textColor=colors.white))
+    styles.add(ParagraphStyle("RoadmapBody", parent=styles["Normal"],
+        fontSize=9, textColor=colors.white, leading=13))
+    return styles
 
 
-# ----------------------------------------------------------------------
-# Componentes reutilizables
-# ----------------------------------------------------------------------
-def _pill(text, color, styles, width=None):
-    t = Table([[Paragraph(text, styles["Pill"])]], colWidths=[width] if width else None)
+# -----------------------------------------------------------------------
+# Helpers de tablas
+# -----------------------------------------------------------------------
+def _info_table(rows, col_widths=None):
+    styles = getSampleStyleSheet()
+    key_style = ParagraphStyle("K", parent=styles["BodyText"],
+        fontSize=9, fontName="Helvetica-Bold", leading=12)
+    val_style = ParagraphStyle("V", parent=styles["BodyText"],
+        fontSize=9, leading=12)
+
+    col_widths = col_widths or [5.5 * cm, 11 * cm]
+    data = [[Paragraph(str(k), key_style), Paragraph(str(v), val_style)]
+            for k, v in rows]
+    t = Table(data, colWidths=col_widths)
     t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), color),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BOX",        (0, 0), (-1, -1), 0.5, C_BORDER),
+        ("INNERGRID",  (0, 0), (-1, -1), 0.3, C_BORDER),
+        ("BACKGROUND", (0, 0), (0, -1),  C_LIGHT),
+        ("VALIGN",     (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING",   (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 5),
     ]))
     return t
 
 
-def _nivel_color(valor, mapa=NIVEL_COLOR, default=COL_MUTED):
-    return mapa.get((valor or "").strip().lower(), default)
+def _status_badge(status):
+    """Retorna texto con color para OK / MEJORAR / CRÍTICO."""
+    if status == "OK":
+        return f'<font color="#2E7D32"><b>✓ OK</b></font>'
+    if status == "MEJORAR":
+        return f'<font color="#F4511E"><b>▲ MEJORAR</b></font>'
+    return f'<font color="#C62828"><b>✗ CRÍTICO</b></font>'
 
 
-def _section_header(num, titulo, subtitulo, styles, primary, accent, width):
-    """Encabezado de sección: número en color de acento (marca) + título,
-    con una línea divisoria inferior para estructurar visualmente."""
-    badge = Table([[Paragraph(f"<b>{num}</b>", styles["ScoreLbl"])]], colWidths=[0.9 * cm],
-                  rowHeights=[0.9 * cm])
-    badge.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), accent),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-    ]))
-    txt = [Paragraph(titulo, styles["H2"])]
-    if subtitulo:
-        txt.append(Paragraph(subtitulo, styles["H2sub"]))
-    row = Table([[badge, txt]], colWidths=[1.2 * cm, width - 1.2 * cm])
-    row.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (0, 0), "MIDDLE"),
-        ("VALIGN", (1, 0), (1, 0), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("LINEBELOW", (0, 0), (-1, -1), 1.4, primary),
-    ]))
-    return row
+def _priority_badge(p):
+    if p == "Alta":
+        return f'<font color="#C62828"><b>Alta</b></font>'
+    if p == "Media":
+        return f'<font color="#F4511E"><b>Media</b></font>'
+    return f'<font color="#2E7D32">Baja</font>'
 
 
-def _score_bar(label, score, styles, total_width):
-    score = max(0, min(100, int(score or 0)))
-    bar_w = total_width - 5.0 * cm
-    filled = max(0.05 * cm, bar_w * score / 100.0)
-    rest = max(0.0, bar_w - filled)
-    color = _score_color(score)
-    bar = Table([["", ""]], colWidths=[filled, rest], rowHeights=[0.4 * cm])
-    bar.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (0, 0), color),
-        ("BACKGROUND", (1, 0), (1, 0), colors.HexColor("#E7EBF0")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-    ]))
-    row = Table([[Paragraph(label, styles["Cell"]), bar,
-                  Paragraph(f'<font color="{_hx(color)}"><b>{score}</b></font>/100', styles["Cell"])]],
-                colWidths=[3.4 * cm, bar_w, 1.6 * cm])
-    row.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-    ]))
-    return row
+def _diagnostic_table(rows_data, col_widths=None):
+    """
+    rows_data: list of (elemento, status, hallazgo, accion, prioridad)
+    status: "OK" | "MEJORAR" | "CRÍTICO"
+    prioridad: "Alta" | "Media" | "Baja" | ""
+    """
+    ss = getSampleStyleSheet()
+    hdr = ParagraphStyle("H", parent=ss["BodyText"], fontSize=8,
+        fontName="Helvetica-Bold", textColor=colors.white, leading=11)
+    cell = ParagraphStyle("C", parent=ss["BodyText"], fontSize=8.5, leading=12)
 
+    cw = col_widths or [3.5*cm, 1.8*cm, 4.5*cm, 5.0*cm, 1.6*cm]
 
-def _generic_table(headers, rows, col_widths, styles, pill_cols=None, pill_color_fn=None):
-    """Tabla genérica con encabezado oscuro y filas alternas.
-    pill_cols: índices de columnas que se renderizan como pill coloreada."""
-    pill_cols = pill_cols or {}
-    head = [Paragraph(f"<b>{h}</b>", styles["CellHead"]) for h in headers]
-    data = [head]
-    pill_meta = []  # (row_idx, col_idx, color)
-    for r in rows:
-        cells = []
-        for ci, val in enumerate(r):
-            if ci in pill_cols:
-                color = pill_color_fn(ci, val) if pill_color_fn else COL_MUTED
-                cells.append(Paragraph(str(val), styles["Pill"]))
-                pill_meta.append((len(data), ci, color))
-            else:
-                cells.append(Paragraph(str(val), styles["Cell"]))
-        data.append(cells)
-
-    t = Table(data, colWidths=col_widths, repeatRows=1)
-    style = [
-        ("BACKGROUND", (0, 0), (-1, 0), COL_DARK),
-        ("INNERGRID", (0, 0), (-1, -1), 0.4, COL_BORDER),
-        ("BOX", (0, 0), (-1, -1), 0.5, COL_BORDER),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    header = [
+        Paragraph("ELEMENTO", hdr),
+        Paragraph("ESTADO", hdr),
+        Paragraph("HALLAZGO", hdr),
+        Paragraph("ACCIÓN RECOMENDADA", hdr),
+        Paragraph("PRIOR.", hdr),
     ]
+    data = [header]
+    for elem, status, hallazgo, accion, prio in rows_data:
+        data.append([
+            Paragraph(str(elem), cell),
+            Paragraph(_status_badge(status), cell),
+            Paragraph(str(hallazgo), cell),
+            Paragraph(str(accion), cell),
+            Paragraph(_priority_badge(prio) if prio else "—", cell),
+        ])
+
+    t = Table(data, colWidths=cw)
+    style = [
+        ("BACKGROUND", (0, 0), (-1, 0), C_DARK),
+        ("BOX",        (0, 0), (-1, -1), 0.5, C_BORDER),
+        ("INNERGRID",  (0, 0), (-1, -1), 0.3, C_BORDER),
+        ("VALIGN",     (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING",   (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 5),
+    ]
+    # Alternar filas
     for i in range(1, len(data)):
         if i % 2 == 0:
-            style.append(("BACKGROUND", (0, i), (-1, i), COL_LIGHT))
-    for ci in pill_cols:
-        style.append(("ALIGN", (ci, 1), (ci, -1), "CENTER"))
-    for (ri, ci, color) in pill_meta:
-        style.append(("BACKGROUND", (ci, ri), (ci, ri), color))
+            style.append(("BACKGROUND", (0, i), (-1, i), C_LIGHT))
     t.setStyle(TableStyle(style))
     return t
 
 
-# ----------------------------------------------------------------------
-# Diagnóstico técnico (datos MEDIDOS, sin IA)
-# ----------------------------------------------------------------------
-def _technical_rows(report):
-    onpage = report.get("onpage", {})
-    sd = report.get("structured_data", {})
-    geo = report.get("geo_signals", {})
-    rows = []
+def _score_mini(label, score, styles, width=4.0*cm):
+    sc = _score_color(score)
+    lb = _score_label(score)
+    # Barra de progreso como tabla
+    bar_w = width - 0.4*cm
+    filled = max(0.1*cm, bar_w * score / 100)
+    empty  = max(0, bar_w - filled)
 
-    def add(elem, estado, hallazgo, accion):
-        prioridad = {"ok": "—", "warn": "Media", "fail": "Alta"}[estado]
-        rows.append([elem, ESTADO_LABEL[estado], hallazgo, accion, prioridad, estado])
+    bar = Table([[""]], colWidths=[filled])
+    bar.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,-1), sc),
+        ("ROWHEIGHT",  (0,0), (-1,-1), 6),
+        ("LEFTPADDING",  (0,0), (-1,-1), 0),
+        ("RIGHTPADDING", (0,0), (-1,-1), 0),
+        ("TOPPADDING",   (0,0), (-1,-1), 0),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 0),
+    ]))
 
-    tl = onpage.get("title_length", 0)
-    add("HTTPS / SSL", "ok" if report.get("https") else "fail",
-        "Activo y funcional" if report.get("https") else "El sitio no usa HTTPS",
-        "Mantener activo" if report.get("https") else "Migrar a HTTPS de inmediato")
-    add("Title homepage", "ok" if (onpage.get("title") and 10 <= tl <= 60) else "warn",
-        f'"{(onpage.get("title") or "—")[:48]}" ({tl} car.)',
-        "Mantener" if (onpage.get("title") and 10 <= tl <= 60)
-        else "Incluir keyword principal, 50-60 caracteres")
-    add("H1 homepage", "ok" if onpage.get("h1_count") == 1 else "warn",
-        f"{onpage.get('h1_count', 0)} H1 detectados",
-        "Mantener un H1 con keyword" if onpage.get("h1_count") == 1
-        else "Usar un único H1 con la keyword principal")
-    add("Meta description", "ok" if onpage.get("meta_description") else "warn",
-        f"{onpage.get('meta_description_length', 0)} caracteres" if onpage.get("meta_description") else "Ausente",
-        "Añadir CTA y diferenciador" if onpage.get("meta_description")
-        else "Redactar meta description de 50-160 car. con CTA")
-    og = onpage.get("open_graph_tags") or {}
-    add("Open Graph", "ok" if og else "warn",
-        f"{len(og)} etiquetas og:" if og else "Sin Open Graph",
-        "Mantener actualizado" if og else "Añadir og:title, og:description, og:image")
-    add("Schema markup", "ok" if sd.get("jsonld_present") else "fail",
-        ", ".join(sd.get("types_found", [])[:5]) or "Sin datos estructurados",
-        "Mantener y ampliar (FAQPage)" if sd.get("jsonld_present")
-        else "Implementar JSON-LD: Organization + Service")
-    add("Sitemap XML", "ok" if report.get("sitemap", {}).get("exists") else "fail",
-        "Encontrado" if report.get("sitemap", {}).get("exists") else "No encontrado",
-        "Mantener y enviar a Search Console" if report.get("sitemap", {}).get("exists")
-        else "Crear sitemap.xml y enviarlo a GSC")
-    add("robots.txt", "ok" if report.get("robots_txt", {}).get("exists") else "warn",
-        "Presente" if report.get("robots_txt", {}).get("exists") else "No encontrado",
-        "Revisar acceso de bots de IA" if report.get("robots_txt", {}).get("exists")
-        else "Crear robots.txt en la raíz")
-    add("Canonical / URL", "ok" if onpage.get("canonical") else "warn",
-        "Canónica definida" if onpage.get("canonical") else "Sin canonical",
-        "Mantener" if onpage.get("canonical") else "Definir URL canónica")
-    add("Mobile (viewport)", "ok" if onpage.get("viewport_present") else "fail",
-        "Responsive" if onpage.get("viewport_present") else "Sin viewport",
-        "Mantener" if onpage.get("viewport_present") else "Añadir meta viewport")
-    blocked = geo.get("ai_bots_explicitly_blocked", [])
-    add("Acceso de bots IA", "ok" if not blocked else "fail",
-        "Permitido" if not blocked else f"Bloquea: {', '.join(blocked)}",
-        "Mantener acceso abierto" if not blocked else "Permitir GPTBot/ClaudeBot/PerplexityBot")
-    add("llms.txt", "ok" if geo.get("llms_txt_present") else "warn",
-        "Presente" if geo.get("llms_txt_present") else "Ausente",
-        "Mantener" if geo.get("llms_txt_present") else "Crear llms.txt (resumen del sitio)")
-    add("Imágenes con alt", "ok" if onpage.get("images_missing_alt", 0) == 0 else "warn",
-        f"{onpage.get('images_missing_alt', 0)} de {onpage.get('images_total', 0)} sin alt",
-        "Mantener" if onpage.get("images_missing_alt", 0) == 0 else "Añadir texto alternativo descriptivo")
-    rt = report.get("response_time_seconds", 99)
-    add("Velocidad respuesta", "ok" if rt < 1.5 else "warn",
-        f"{rt} s", "Mantener" if rt < 1.5 else "Optimizar caché/CDN e imágenes")
-    return rows
+    ss = getSampleStyleSheet()
+    score_p = ParagraphStyle("SP", parent=ss["Normal"],
+        fontSize=22, fontName="Helvetica-Bold", alignment=TA_CENTER,
+        textColor=sc, leading=26)
+    lbl_p = ParagraphStyle("LP", parent=ss["Normal"],
+        fontSize=8, alignment=TA_CENTER, textColor=C_GRAY)
+    badge_p = ParagraphStyle("BP", parent=ss["Normal"],
+        fontSize=8, alignment=TA_CENTER, textColor=sc,
+        fontName="Helvetica-Bold")
+
+    cell_content = [
+        Paragraph(f"<b>{score}</b>/100", score_p),
+        Paragraph(label, lbl_p),
+        bar,
+        Paragraph(lb, badge_p),
+    ]
+    t = Table([[c] for c in cell_content], colWidths=[width])
+    t.setStyle(TableStyle([
+        ("BOX",          (0,0), (-1,-1), 0.5, C_BORDER),
+        ("ALIGN",        (0,0), (-1,-1), "CENTER"),
+        ("TOPPADDING",   (0,0), (-1,-1), 8),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 8),
+        ("LEFTPADDING",  (0,0), (-1,-1), 4),
+        ("RIGHTPADDING", (0,0), (-1,-1), 4),
+    ]))
+    return t
 
 
-# ----------------------------------------------------------------------
-# Pie de página
-# ----------------------------------------------------------------------
-def _make_footer(b):
-    company = b["company_name"]
-
-    def _footer(canvas, doc):
-        canvas.saveState()
-        canvas.setFont("Helvetica", 7)
-        canvas.setFillColor(COL_MUTED)
-        canvas.drawString(1.5 * cm, 0.9 * cm,
-                          f"{company} · Diagnóstico SEO + GEO Premium · Confidencial")
-        canvas.drawRightString(letter[0] - 1.5 * cm, 0.9 * cm, f"Página {doc.page}")
-        canvas.setStrokeColor(COL_BORDER)
-        canvas.line(1.5 * cm, 1.2 * cm, letter[0] - 1.5 * cm, 1.2 * cm)
-        canvas.restoreState()
-
-    return _footer
-
-
-# ----------------------------------------------------------------------
-# Documento principal
-# ----------------------------------------------------------------------
+# -----------------------------------------------------------------------
+# generate_pdf — función principal
+# -----------------------------------------------------------------------
 def generate_pdf(report, lead, output_path, branding=None):
     b = dict(DEFAULT_BRANDING)
     if branding:
         b.update(branding)
-    # Sanear colores: si llegan vacíos/ inválidos, usar los por defecto
-    b["primary_color"] = _safe_hex(b.get("primary_color"), "#1A1A1A")
-    b["accent_color"] = _safe_hex(b.get("accent_color"), "#FF7A1A")
+
     styles = _styles(b)
-    primary = colors.HexColor(b["primary_color"])
-    accent = colors.HexColor(b["accent_color"])
-    W = letter[0] - 3.0 * cm  # ancho útil
+    story  = []
+    W = 16.5 * cm   # ancho útil
 
-    scores = report.get("scores", {})
-    promedio = scores.get("promedio_general", 0)
-    ai = report.get("ai_summary") or {}
-    if isinstance(ai, str):
-        ai = {"resumen_ejecutivo": {"situacion_actual": ai}}
-    if not isinstance(ai, dict):
-        ai = {}
-    # Normalizar tipos para tolerar cualquier forma que devuelva el LLM
-    _re = ai.get("resumen_ejecutivo")
-    ai = {
-        "negocio": _as_dict(ai.get("negocio")),
-        "score_label": _as_str(ai.get("score_label")),
-        "potencial": _as_str(ai.get("potencial")),
-        "badges": _as_str_list(ai.get("badges")),
-        "kpis_destacados": _as_dict_list(ai.get("kpis_destacados")),
-        "resumen_ejecutivo": _re if isinstance(_re, (dict, str)) else {},
-        "lo_que_funciona": _as_str(ai.get("lo_que_funciona")),
-        "lo_que_frena": _as_str(ai.get("lo_que_frena")),
-        "diagnostico_areas": _as_dict_list(ai.get("diagnostico_areas")),
-        "problemas_criticos": _as_dict_list(ai.get("problemas_criticos")),
-        "quick_wins": _as_dict_list(ai.get("quick_wins")),
-        "geo": _as_dict(ai.get("geo")),
-        "competidores": _as_dict_list(ai.get("competidores")),
-        "insight_competitivo": _as_str(ai.get("insight_competitivo")),
-        "keywords": _as_dict_list(ai.get("keywords")),
-        "matriz": _as_dict(ai.get("matriz")),
-        "roadmap": _as_dict_list(ai.get("roadmap")),
-        "kpis_6_meses": _as_dict_list(ai.get("kpis_6_meses")),
-        "proximos_pasos": _as_dict_list(ai.get("proximos_pasos")),
-        "conclusion": _as_str(ai.get("conclusion")),
-        "veredicto": _as_str(ai.get("veredicto")),
-    }
-    negocio = ai.get("negocio") or {}
+    onpage  = report.get("onpage", {})
+    geo     = report.get("geo_signals", {})
+    sd      = report.get("structured_data", {})
+    content = report.get("content", {})
+    scores  = report.get("scores", {})
+    robots  = report.get("robots_txt", {})
+    sitemap = report.get("sitemap", {})
+    llms    = report.get("llms_txt", {})
+    domain  = report.get("domain", "-")
+    fecha   = report.get("fetched_at", datetime.now().strftime("%Y-%m-%d %H:%M"))
 
-    story = []
+    nombre_lead = (lead or {}).get("nombre", "")
+    empresa_lead = (lead or {}).get("empresa", "")
 
-    # =================================================================
-    # PORTADA
-    # =================================================================
-    eyebrow = Paragraph(
-        f"{b['company_name'].upper()} · DIAGNÓSTICO SEO + GEO PREMIUM", styles["Eyebrow"])
-    titulo = Paragraph("Informe de crecimiento orgánico<br/>+ presencia en IA", styles["CoverTitle"])
-
-    descriptor = negocio.get("descriptor") or ""
-    if not descriptor and negocio:
-        partes = [negocio.get("sector"), negocio.get("ubicacion"), negocio.get("modelo")]
-        descriptor = " · ".join(p for p in partes if p)
-    meta_block = [
-        Paragraph("FECHA DE ANÁLISIS", styles["CoverMeta"]),
-        Paragraph(_fecha_legible(report.get("fetched_at")), styles["CoverMetaBig"]),
-        Spacer(1, 0.2 * cm),
-        Paragraph("DOMINIO ANALIZADO", styles["CoverMeta"]),
-        Paragraph(f"<b>{report.get('domain')}</b>", styles["CoverMetaBig"]),
-    ]
-    if descriptor:
-        meta_block.append(Spacer(1, 0.1 * cm))
-        meta_block.append(Paragraph(descriptor, styles["CoverMeta"]))
-    if lead and lead.get("nombre"):
-        meta_block.append(Spacer(1, 0.1 * cm))
-        prep = f"Preparado para: {lead['nombre']}"
-        if lead.get("empresa"):
-            prep += f" — {lead['empresa']}"
-        meta_block.append(Paragraph(prep, styles["CoverMeta"]))
-
-    score_col = _score_color(promedio)
-    score_label = ai.get("score_label") or _score_label_auto(promedio)
-    badge_inner = Table(
-        [[Paragraph(f"<b>{promedio}</b>", styles["ScoreHuge"])],
-         [Paragraph("/ 100", styles["ScoreUnit"])],
-         [Paragraph("Score SEO + GEO", styles["ScoreUnit"])],
-         [Paragraph(f"<b>{score_label}</b>", styles["ScoreLbl"])]],
-        colWidths=[4.4 * cm])
-    badge_inner.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 2), score_col),
-        ("BACKGROUND", (0, 3), (-1, 3), colors.HexColor("#00000022")),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, 0), 10), ("BOTTOMPADDING", (0, 0), (-1, 0), 0),
-        ("TOPPADDING", (0, 3), (-1, 3), 6), ("BOTTOMPADDING", (0, 3), (-1, 3), 6),
+    # ==================================================================
+    # 1. PORTADA
+    # ==================================================================
+    # Bloque oscuro de portada
+    cover_data = [[
+        Paragraph(
+            f'<font color="#F4511E">AGENCIA IDP · DIAGNÓSTICO SEO + GEO PREMIUM</font>',
+            styles["BodySmall"]),
+    ]]
+    cover_top = Table(cover_data, colWidths=[W])
+    cover_top.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,-1), C_DARK),
+        ("LEFTPADDING",  (0,0), (-1,-1), 16),
+        ("TOPPADDING",   (0,0), (-1,-1), 20),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 8),
     ]))
 
-    left_col = []
-    logo = _logo_flowable(b.get("logo_path"), 4.6 * cm, 1.8 * cm)
-    if logo:
-        left_col += [logo, Spacer(1, 0.3 * cm)]
-    left_col += [eyebrow, Spacer(1, 0.25 * cm), titulo, Spacer(1, 0.4 * cm)] + meta_block
+    # Logo + título
+    logo_path = b.get("logo_path", "")
+    logo_elem = ""
+    if logo_path and os.path.exists(logo_path):
+        logo_elem = Image(logo_path, width=3.5*cm, height=1.3*cm)
 
-    cover = Table([[left_col, badge_inner]],
-                  colWidths=[W - 5.2 * cm, 5.2 * cm])
-    cover.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), primary),
-        ("VALIGN", (0, 0), (0, 0), "TOP"),
-        ("VALIGN", (1, 0), (1, 0), "MIDDLE"),
-        ("ALIGN", (1, 0), (1, 0), "CENTER"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 18), ("RIGHTPADDING", (0, 0), (-1, -1), 18),
-        ("TOPPADDING", (0, 0), (-1, -1), 20), ("BOTTOMPADDING", (0, 0), (-1, -1), 20),
-    ]))
-    story.append(cover)
-    story.append(Spacer(1, 0.35 * cm))
+    score_gen = scores.get("promedio_general", 0)
+    sc_color  = _score_color(score_gen)
 
-    # Badges
-    badges = ai.get("badges") or []
-    if badges:
-        neg_words = ("sin", "limitad", "nulo", "crític", "critic", "bajo", "ausente", "débil", "debil")
-        cells, widths = [], []
-        for bd in badges[:6]:
-            color = COL_WARN if any(w in bd.lower() for w in neg_words) else COL_DARK
-            cells.append(_pill(bd, color, styles))
-            widths.append((W - 0.8 * cm) / min(len(badges[:6]), 6))
-        brow = Table([cells], colWidths=widths)
-        brow.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0),
-                                  ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                                  ("TOPPADDING", (0, 0), (-1, -1), 0),
-                                  ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
-        story.append(brow)
-        story.append(Spacer(1, 0.35 * cm))
+    cover_main_left = []
+    if logo_elem:
+        cover_main_left.append(logo_elem)
+        cover_main_left.append(Spacer(1, 0.2*cm))
+    cover_main_left.append(Paragraph("Informe de crecimiento<br/>orgánico<br/>+ presencia en IA",
+        styles["ReportTitle"]))
+    cover_main_left.append(Spacer(1, 0.3*cm))
+    cover_main_left.append(Paragraph(
+        f'<font color="#888888">FECHA DE ANÁLISIS</font>', styles["BodySmall"]))
+    cover_main_left.append(Paragraph(
+        datetime.now().strftime("%B %Y").capitalize(), styles["ReportSubtitle"]))
+    cover_main_left.append(Paragraph(
+        f'<font color="#888888">DOMINIO ANALIZADO</font>', styles["BodySmall"]))
+    cover_main_left.append(Paragraph(
+        f'<b>{domain}</b>', styles["ReportSubtitle"]))
+    if nombre_lead:
+        etiqueta = nombre_lead + (f" — {empresa_lead}" if empresa_lead else "")
+        cover_main_left.append(Paragraph(
+            f'Preparado para: {etiqueta}', styles["BodySmall"]))
 
-    # KPIs destacados
-    kpis = ai.get("kpis_destacados") or []
-    if kpis:
-        cards = []
-        for k in kpis[:8]:
-            est = (k.get("estado") or "warn").lower()
-            col = ESTADO_COLOR.get(est, COL_MUTED)
-            valor = k.get("valor", "—")
-            if isinstance(valor, bool):
-                valor = "Sí" if valor else "No"
-            elif str(valor).strip().lower() in ("true", "false"):
-                valor = "Sí" if str(valor).strip().lower() == "true" else "No"
-            cell = Table([[Paragraph(f'<font color="{_hx(col)}"><b>{valor}</b></font>', styles["KpiVal"])],
-                          [Paragraph(k.get("etiqueta", ""), styles["KpiLbl"])]],
-                         colWidths=[(W - 0.9 * cm) / 4])
-            cell.setStyle(TableStyle([
-                ("BOX", (0, 0), (-1, -1), 0.5, COL_BORDER),
-                ("LINEBEFORE", (0, 0), (0, -1), 2, col),
-                ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-                ("LEFTPADDING", (0, 0), (-1, -1), 7), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                ("TOPPADDING", (0, 0), (0, 0), 6), ("BOTTOMPADDING", (0, 1), (0, 1), 6),
-            ]))
-            cards.append(cell)
-        # filas de 4
-        for i in range(0, len(cards), 4):
-            fila = cards[i:i + 4]
-            while len(fila) < 4:
-                fila.append("")
-            grid = Table([fila], colWidths=[(W - 0.9 * cm) / 4] * 4)
-            grid.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0),
-                                      ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-                                      ("TOPPADDING", (0, 0), (-1, -1), 0),
-                                      ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-                                      ("VALIGN", (0, 0), (-1, -1), "TOP")]))
-            story.append(grid)
-        story.append(Spacer(1, 0.3 * cm))
-
-    # Resumen ejecutivo
-    re_ = ai.get("resumen_ejecutivo") or {}
-    if isinstance(re_, str):
-        re_ = {"situacion_actual": re_}
-    if any(re_.values()):
-        story.append(Paragraph("Resumen ejecutivo", styles["H2"]))
-        story.append(Paragraph("Para el director o dueño del negocio", styles["H2sub"]))
-        for etiqueta, clave in [("Situación actual", "situacion_actual"),
-                                ("Oportunidad principal", "oportunidad_principal"),
-                                ("Proyección a 6 meses", "proyeccion_6_meses")]:
-            if re_.get(clave):
-                story.append(Paragraph(f'<b><font color="{_hx(primary)}">{etiqueta} — </font></b>{re_[clave]}',
-                                       styles["Lead"]))
-                story.append(Spacer(1, 0.12 * cm))
-
-    # Diagnóstico por área (MEDIDO)
-    story.append(Paragraph("Estado general por área", styles["H2"]))
-    story.append(Paragraph("Puntajes medidos por el motor de análisis (0-100).", styles["H2sub"]))
-    story.append(_score_bar("SEO técnico", scores.get("seo_tecnico", 0), styles, W))
-    story.append(_score_bar("GEO / visibilidad en IA", scores.get("geo", 0), styles, W))
-    story.append(_score_bar("Contenido", scores.get("contenido", 0), styles, W))
-    story.append(Spacer(1, 0.25 * cm))
-
-    # Desglose por área (estimación del consultor / IA)
-    areas = _as_dict_list(ai.get("diagnostico_areas"))
-    if areas:
-        story.append(Paragraph("Diagnóstico por área", styles["H2"]))
-        story.append(Paragraph("Evaluación detallada del consultor por dimensión.", styles["H2sub"]))
-        for a in areas[:6]:
-            try:
-                sc_a = int(a.get("score", 0))
-            except Exception:
-                sc_a = 0
-            story.append(_score_bar(str(a.get("area", "—")), sc_a, styles, W))
-            if a.get("comentario"):
-                story.append(Paragraph(str(a["comentario"]), styles["CellMuted"]))
-                story.append(Spacer(1, 0.08 * cm))
-        story.append(Spacer(1, 0.25 * cm))
-
-    # Lo que funciona / frena
-    lf, lq = ai.get("lo_que_funciona"), ai.get("lo_que_frena")
-    if lf or lq:
-        col1 = Table([[Paragraph("LO QUE FUNCIONA", styles["CalloutTitle"])],
-                      [Paragraph(lf or "—", styles["BodyTight"])]], colWidths=[(W - 0.4 * cm) / 2])
-        col1.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), COL_OK), ("BACKGROUND", (0, 1), (-1, 1), COL_LIGHT),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-            ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("VALIGN", (0, 0), (-1, -1), "TOP")]))
-        col2 = Table([[Paragraph("LO QUE FRENA TODO", styles["CalloutTitle"])],
-                      [Paragraph(lq or "—", styles["BodyTight"])]], colWidths=[(W - 0.4 * cm) / 2])
-        col2.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), COL_FAIL), ("BACKGROUND", (0, 1), (-1, 1), COL_LIGHT),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-            ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("VALIGN", (0, 0), (-1, -1), "TOP")]))
-        twocol = Table([[col1, col2]], colWidths=[(W - 0.4 * cm) / 2 + 0.2 * cm] * 2)
-        twocol.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0),
-                                    ("RIGHTPADDING", (0, 0), (0, 0), 8),
-                                    ("VALIGN", (0, 0), (-1, -1), "TOP")]))
-        story.append(Spacer(1, 0.15 * cm))
-        story.append(twocol)
-
-    # =================================================================
-    # 2 · PROBLEMAS CRÍTICOS
-    # =================================================================
-    problemas = ai.get("problemas_criticos") or []
-    if problemas:
-        story.append(CondPageBreak(7 * cm))
-        story.append(_section_header("2", "Problemas críticos",
-                                     "Acción inmediata requerida", styles, primary, accent, W))
-        story.append(Spacer(1, 0.2 * cm))
-        for p in problemas[:8]:
-            sev = (p.get("severidad") or "Alto")
-            sev_col = SEV_COLOR.get(sev.lower(), COL_WARN)
-            top = Table([[Paragraph(f"<b>{p.get('titulo','')}</b>", styles["CardTitle"]),
-                          _pill(sev.upper(), sev_col, styles, 2.0 * cm)]],
-                        colWidths=[W - 2.2 * cm, 2.0 * cm])
-            top.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                                     ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                                     ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
-            cuerpo = [top, Spacer(1, 0.1 * cm)]
-            if p.get("impacto_negocio"):
-                cuerpo.append(Paragraph(f"<b>Impacto en negocio:</b> {p['impacto_negocio']}", styles["BodyTight"]))
-            if p.get("impacto_seo"):
-                cuerpo.append(Paragraph(f"<b>Impacto SEO estimado:</b> {p['impacto_seo']}", styles["BodyTight"]))
-            if p.get("solucion"):
-                cuerpo.append(Paragraph(f"<b>Solución:</b> {p['solucion']}", styles["BodyTight"]))
-            # fila inferior: dificultad / resultado / prioridad
-            def minicol(lbl, val, color=COL_INK):
-                return Table([[Paragraph(lbl, styles["CardLabel"])],
-                              [Paragraph(f'<font color="{_hx(color)}"><b>{val}</b></font>', styles["CardVal"])]],
-                             colWidths=[(W - 0.6 * cm) / 3])
-            mc = Table([[minicol("DIFICULTAD", p.get("dificultad", "—")),
-                         minicol("RESULTADO ESPERADO", p.get("resultado_esperado", "—"), COL_OK),
-                         minicol("PRIORIDAD", p.get("prioridad", "—"), sev_col)]],
-                       colWidths=[(W - 0.6 * cm) / 3] * 3)
-            mc.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
-                                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                                    ("TOPPADDING", (0, 0), (-1, -1), 4)]))
-            cuerpo.append(Spacer(1, 0.05 * cm))
-            cuerpo.append(mc)
-            card = Table([[cuerpo]], colWidths=[W])
-            card.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-                ("BOX", (0, 0), (-1, -1), 0.6, COL_BORDER),
-                ("LINEBEFORE", (0, 0), (0, -1), 3, sev_col),
-                ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-                ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8)]))
-            story.append(KeepTogether(card))
-            story.append(Spacer(1, 0.2 * cm))
-
-    # =================================================================
-    # 3 · QUICK WINS + GEO
-    # =================================================================
-    quick = ai.get("quick_wins") or []
-    geo_ai = ai.get("geo") or {}
-    if quick or geo_ai:
-        story.append(CondPageBreak(7 * cm))
-    if quick:
-        story.append(_section_header("3", "Quick wins",
-                                     "Impacto en menos de 30 días", styles, primary, accent, W))
-        story.append(Spacer(1, 0.2 * cm))
-        qcards = []
-        for i, q in enumerate(quick[:8], 1):
-            imp = (q.get("impacto") or "Medio")
-            cuerpo = [
-                Paragraph(f'<font color="{_hx(primary)}"><b>{i}. {q.get("titulo","")}</b></font>', styles["CardVal"]),
-                Paragraph(q.get("descripcion", ""), styles["CellMuted"]),
-            ]
-            if q.get("resultado"):
-                cuerpo.append(Paragraph(f'<font color="{_hx(COL_OK)}">»{q["resultado"]}</font>', styles["CellMuted"]))
-            cuerpo.append(Spacer(1, 0.05 * cm))
-            cuerpo.append(Table([[_pill(f"{imp} impacto", _nivel_color(imp), styles),
-                                  _pill(f"Esfuerzo: {q.get('esfuerzo','—')}", COL_DARK, styles)]],
-                                colWidths=[2.6 * cm, 3.0 * cm],
-                                style=TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0),
-                                                  ("RIGHTPADDING", (0, 0), (0, 0), 4)])))
-            cell = Table([[cuerpo]], colWidths=[(W - 0.4 * cm) / 2])
-            cell.setStyle(TableStyle([
-                ("BOX", (0, 0), (-1, -1), 0.5, COL_BORDER),
-                ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-                ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-                ("VALIGN", (0, 0), (-1, -1), "TOP")]))
-            qcards.append(cell)
-        for i in range(0, len(qcards), 2):
-            fila = qcards[i:i + 2]
-            while len(fila) < 2:
-                fila.append("")
-            grid = Table([fila], colWidths=[(W - 0.4 * cm) / 2 + 0.2 * cm] * 2)
-            grid.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0),
-                                      ("RIGHTPADDING", (0, 0), (0, 0), 8),
-                                      ("TOPPADDING", (0, 0), (-1, -1), 0),
-                                      ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-                                      ("VALIGN", (0, 0), (-1, -1), "TOP")]))
-            story.append(grid)
-
-    if geo_ai:
-        story.append(Spacer(1, 0.2 * cm))
-        story.append(_section_header("4", "Diagnóstico GEO",
-                                     "Visibilidad en ChatGPT · Gemini · Perplexity", styles, primary, accent, W))
-        story.append(Spacer(1, 0.15 * cm))
-        if geo_ai.get("que_es"):
-            story.append(Paragraph(f"<b>¿Qué es GEO y por qué importa?</b> {geo_ai['que_es']}", styles["Body"]))
-            story.append(Spacer(1, 0.1 * cm))
-        if geo_ai.get("estado_actual"):
-            story.append(Paragraph(f"<b>Estado actual:</b> {geo_ai['estado_actual']}", styles["Body"]))
-            story.append(Spacer(1, 0.1 * cm))
-        if geo_ai.get("pregunta_prueba"):
-            pruebatxt = f'<b>Pregunta de prueba a la IA:</b> <i>"{geo_ai["pregunta_prueba"]}"</i>'
-            if geo_ai.get("que_citan"):
-                pruebatxt += f' &nbsp; <b>Las IAs citan:</b> {geo_ai["que_citan"]}'
-            pcard = Table([[Paragraph(pruebatxt, styles["BodyTight"])]], colWidths=[W])
-            pcard.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), COL_LIGHT),
-                ("LINEBEFORE", (0, 0), (0, -1), 3, accent),
-                ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-                ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7)]))
-            story.append(pcard)
-            story.append(Spacer(1, 0.12 * cm))
-        nec = geo_ai.get("que_necesita")
-        nec = nec if isinstance(nec, list) else []
-        if nec:
-            story.append(Paragraph("<b>Qué necesita el sitio para aparecer en IAs:</b>", styles["Body"]))
-            for n in nec:
-                story.append(Paragraph(f'• {n}', styles["BodyTight"]))
-
-    # =================================================================
-    # 5 · DIAGNÓSTICO TÉCNICO (MEDIDO)
-    # =================================================================
-    story.append(CondPageBreak(7 * cm))
-    story.append(_section_header("5", "Diagnóstico técnico",
-                                 "Verificado directamente sobre el sitio", styles, primary, accent, W))
-    story.append(Spacer(1, 0.2 * cm))
-    rows = _technical_rows(report)
-    table_rows = [[r[0], r[1], r[2], r[3], r[4]] for r in rows]
-    prio_color = {"—": COL_MUTED, "media": COL_WARN, "alta": COL_FAIL}
-    est_map = {"OK": COL_OK, "MEJORAR": COL_WARN, "CRÍTICO": COL_FAIL}
-
-    def _pcolor(ci, val):
-        v = str(val).strip()
-        if ci == 1:  # estado
-            return est_map.get(v, COL_MUTED)
-        if ci == 4:  # prioridad
-            return prio_color.get(v.lower(), COL_MUTED)
-        return COL_MUTED
-
-    story.append(_generic_table(
-        ["ELEMENTO", "ESTADO", "HALLAZGO ESPECÍFICO", "ACCIÓN RECOMENDADA", "PRIOR."],
-        table_rows, [2.7 * cm, 1.7 * cm, 5.0 * cm, 5.3 * cm, 1.6 * cm],
-        styles, pill_cols={1, 4}, pill_color_fn=_pcolor))
-
-    # Reputación online y autoridad (Trustpilot, reseñas, backlinks)
-    rep = report.get("reputacion") or {}
-    tp = rep.get("trustpilot") or {}
-    sp = rep.get("sitio_propio") or {}
-    bl = report.get("backlinks") or {}
-    gr = rep.get("google") or {}
-    _ED = {"ok": "OK", "warn": "MEJORAR", "fail": "FALTA"}
-    rep_rows = []
-    # Reseñas en el propio sitio (schema) — verificable gratis
-    if sp.get("rating"):
-        rep_rows.append(["Reseñas en tu sitio (schema)", "ok", f"{sp.get('rating')} estrellas · {sp.get('reviews', '?')} reseñas"])
-    else:
-        rep_rows.append(["Reseñas en tu sitio (schema)", "warn", "No detectadas — añadir schema AggregateRating"])
-    # Trustpilot — requiere API de reseñas
-    if tp.get("exists"):
-        rep_rows.append(["Trustpilot", "ok", f"{tp.get('rating', '?')} estrellas · {tp.get('reviews', '?')} reseñas"])
-    else:
-        rep_rows.append(["Trustpilot", "warn", "Requiere API de reseñas (DataForSEO) para verificar"])
-    # Google reviews — requiere API
-    if gr.get("disponible"):
-        rep_rows.append(["Google reviews", "ok", f"{gr.get('rating', '?')} estrellas · {gr.get('reviews', '?')} reseñas"])
-    else:
-        rep_rows.append(["Google reviews", "warn", "Requiere API (Google Places / DataForSEO)"])
-    # Backlinks — requiere API
-    if bl.get("disponible"):
-        rep_rows.append(["Backlinks", "ok",
-                         f"{bl.get('backlinks', '?')} enlaces · {bl.get('referring_domains', '?')} dominios de referencia"])
-        if bl.get("rank") is not None:
-            rep_rows.append(["Autoridad (rank del dominio)", "ok", str(bl.get("rank"))])
-    else:
-        rep_rows.append(["Backlinks / autoridad", "warn", "Requiere API de SEO (DataForSEO) para datos reales"])
-
-    rep_table = [[r[0], _ED.get(r[1], r[1].upper()), r[2]] for r in rep_rows]
-
-    def _repcolor(ci, val):
-        return {"OK": COL_OK, "MEJORAR": COL_WARN, "FALTA": COL_FAIL}.get(str(val), COL_MUTED)
-
-    story.append(Spacer(1, 0.35 * cm))
-    story.append(Paragraph("Reputación online y autoridad", styles["H2"]))
-    story.append(Paragraph("Reseñas (Trustpilot, Google) y perfil de enlaces.", styles["H2sub"]))
-    story.append(_generic_table(["ELEMENTO", "ESTADO", "DETALLE"], rep_table,
-                                [4.7 * cm, 2.5 * cm, 9.3 * cm], styles,
-                                pill_cols={1}, pill_color_fn=_repcolor))
-
-    # =================================================================
-    # 6 · COMPETIDORES + KEYWORDS
-    # =================================================================
-    comps = ai.get("competidores") or []
-    kws = ai.get("keywords") or []
-    if comps or kws:
-        story.append(CondPageBreak(7 * cm))
-    if comps:
-        story.append(_section_header("6", "Análisis competitivo",
-                                     "Estimación experta del panorama digital del sector", styles, primary, accent, W))
-        story.append(Spacer(1, 0.2 * cm))
-        crows = [[c.get("dominio", "—"), c.get("especializacion", "—"),
-                  c.get("visibilidad", "—"), c.get("seo", "—"), c.get("geo", "—")] for c in comps[:6]]
-
-        def _ccolor(ci, val):
-            return _nivel_color(val)
-        story.append(_generic_table(
-            ["DOMINIO", "ESPECIALIZACIÓN", "VISIBILIDAD", "SEO", "GEO"],
-            crows, [4.2 * cm, 5.0 * cm, 3.0 * cm, 1.9 * cm, 2.2 * cm],
-            styles, pill_cols={3, 4}, pill_color_fn=_ccolor))
-        story.append(Paragraph("Datos de competencia estimados por IA (no medidos con herramientas de pago).",
-                               styles["Caption"]))
-        if ai.get("insight_competitivo"):
-            story.append(Spacer(1, 0.12 * cm))
-            story.append(Paragraph(f"<b>Insight estratégico:</b> {ai['insight_competitivo']}", styles["Body"]))
-    if kws:
-        story.append(Spacer(1, 0.3 * cm))
-        story.append(_section_header("7", "Oportunidades de keywords",
-                                     "Temas con mayor potencial de posicionamiento", styles, primary, accent, W))
-        story.append(Spacer(1, 0.2 * cm))
-        krows = [[k.get("keyword", "—"), k.get("intencion", "—"), k.get("volumen", "—"),
-                  k.get("competencia", "—"), k.get("tipo_pagina", "—"), k.get("prioridad", "—")] for k in kws[:12]]
-
-        def _kcolor(ci, val):
-            return _nivel_color(val)
-        story.append(_generic_table(
-            ["KEYWORD / TEMA", "INTENCIÓN", "VOLUMEN", "COMPETENCIA", "TIPO PÁGINA", "PRIOR."],
-            krows, [4.4 * cm, 2.7 * cm, 2.3 * cm, 2.3 * cm, 2.6 * cm, 1.6 * cm],
-            styles, pill_cols={5}, pill_color_fn=_kcolor))
-        story.append(Paragraph("Volúmenes y competencia estimados por IA.", styles["Caption"]))
-
-    # =================================================================
-    # 8 · MATRIZ IMPACTO vs DIFICULTAD
-    # =================================================================
-    matriz = ai.get("matriz") or {}
-    bloques = [
-        ("Hacer AHORA — alto impacto, bajo esfuerzo", matriz.get("ahora"), accent),
-        ("Mes 2 — alto impacto, dificultad media", matriz.get("mes_2"), primary),
-        ("Mes 3 — alto impacto, alta dificultad", matriz.get("mes_3"), primary),
-        ("Mes 4–6 — consolidación y escala", matriz.get("mes_4_6"), COL_MUTED),
+    # Score box derecho
+    sc_hex = sc_color.hexval()[2:]
+    score_box_content = [
+        Paragraph(f'<font color="#{sc_hex}"><b>{score_gen}</b></font>',
+            styles["ScoreCover"]),
+        Paragraph("/ 100", ParagraphStyle("sl", parent=styles["BodySmall"],
+            alignment=TA_CENTER, textColor=colors.HexColor("#AAAAAA"), fontSize=11)),
+        Paragraph("Score SEO + GEO", ParagraphStyle("sl2", parent=styles["BodySmall"],
+            alignment=TA_CENTER, textColor=colors.white, fontSize=9,
+            fontName="Helvetica-Bold")),
+        Spacer(1, 4),
+        Table([[Paragraph(_score_label(score_gen),
+            ParagraphStyle("sl3", parent=styles["BodySmall"],
+                alignment=TA_CENTER, textColor=C_DARK,
+                fontName="Helvetica-Bold", fontSize=10))]],
+            colWidths=[3.8*cm]),
     ]
-    bloques = [(t, it, c) for (t, it, c) in bloques if isinstance(it, list) and it]
-    if bloques:
-        story.append(CondPageBreak(7 * cm))
-        story.append(_section_header("8", "Matriz de impacto vs. dificultad",
-                                     "Qué priorizar y en qué orden", styles, primary, accent, W))
-        story.append(Spacer(1, 0.2 * cm))
-        for titulo, items, col in bloques:
-            head = Table([[Paragraph(f"<b>{titulo}</b>", styles["CalloutTitle"])]], colWidths=[W])
-            head.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), col),
-                                      ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                                      ("TOPPADDING", (0, 0), (-1, -1), 4),
-                                      ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
-            inner = [Paragraph(f'• {it}', styles["BodyTight"]) for it in items]
-            body = Table([[inner]], colWidths=[W])
-            body.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), COL_LIGHT),
-                                      ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                                      ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
-            story.append(KeepTogether([head, body]))
-            story.append(Spacer(1, 0.15 * cm))
+    score_box_content[-1].setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,-1), sc_color),
+        ("TOPPADDING",   (0,0),(-1,-1), 5),
+        ("BOTTOMPADDING",(0,0),(-1,-1), 5),
+    ]))
+    score_box = Table([[c] for c in score_box_content], colWidths=[4.2*cm])
+    score_box.setStyle(TableStyle([
+        ("BOX",          (0,0),(-1,-1), 0.5, colors.HexColor("#444444")),
+        ("BACKGROUND",   (0,0),(-1,-1), colors.HexColor("#2A2A2A")),
+        ("ALIGN",        (0,0),(-1,-1), "CENTER"),
+        ("TOPPADDING",   (0,0),(-1,-1), 10),
+        ("BOTTOMPADDING",(0,0),(-1,-1), 10),
+        ("LEFTPADDING",  (0,0),(-1,-1), 6),
+        ("RIGHTPADDING", (0,0),(-1,-1), 6),
+    ]))
 
-    # =================================================================
-    # 9 · ROADMAP + KPIs + PRÓXIMOS PASOS
-    # =================================================================
-    roadmap = ai.get("roadmap") or []
-    kpis6 = ai.get("kpis_6_meses") or []
-    pasos = ai.get("proximos_pasos") or []
-    if roadmap or kpis6 or pasos:
-        story.append(CondPageBreak(7 * cm))
-    if roadmap:
-        story.append(_section_header("9", "Roadmap de implementación",
-                                     "Plan 30 / 60 / 90 días", styles, primary, accent, W))
-        story.append(Spacer(1, 0.2 * cm))
-        for fase in roadmap[:4]:
-            items = fase.get("items")
-            items = items if isinstance(items, list) else []
-            cuerpo = [Paragraph(f"<b>{fase.get('fase','')}</b>", styles["CalloutTitle"])]
-            inner = [Paragraph(f'• {it}', styles["BodyTight"]) for it in items]
-            head = Table([[cuerpo[0]]], colWidths=[W])
-            head.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), primary),
-                                      ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                                      ("TOPPADDING", (0, 0), (-1, -1), 4),
-                                      ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
-            body = Table([[inner]], colWidths=[W])
-            body.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), COL_LIGHT),
-                                      ("LEFTPADDING", (0, 0), (-1, -1), 10),
-                                      ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                                      ("TOPPADDING", (0, 0), (-1, -1), 6),
-                                      ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
-            blk = [head, body]
-            if fase.get("resultado"):
-                res = Table([[Paragraph(f'»{fase["resultado"]}', styles["CellMuted"])]], colWidths=[W])
-                res.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 10),
-                                         ("TOPPADDING", (0, 0), (-1, -1), 3),
-                                         ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
-                blk.append(res)
-            story.append(KeepTogether(blk))
-            story.append(Spacer(1, 0.18 * cm))
+    cover_main = Table(
+        [[cover_main_left, score_box]],
+        colWidths=[11.5*cm, 4.5*cm],
+    )
+    cover_main.setStyle(TableStyle([
+        ("BACKGROUND",   (0,0), (-1,-1), C_DARK),
+        ("VALIGN",       (0,0), (-1,-1), "MIDDLE"),
+        ("LEFTPADDING",  (0,0), (0,-1),  16),
+        ("RIGHTPADDING", (0,0), (-1,-1), 16),
+        ("TOPPADDING",   (0,0), (-1,-1), 14),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 20),
+    ]))
 
-    if kpis6:
-        story.append(Spacer(1, 0.1 * cm))
-        story.append(_section_header("10", "KPIs y metas a 6 meses", "", styles, primary, accent, W))
-        story.append(Spacer(1, 0.15 * cm))
-        krows = [[k.get("metrica", "—"), k.get("hoy", "—"), k.get("meta", "—")] for k in kpis6[:6]]
-        story.append(_generic_table(["MÉTRICA", "HOY", "META A 6 MESES"],
-                                    krows, [6.0 * cm, 5.2 * cm, 5.4 * cm], styles))
+    story.append(cover_top)
+    story.append(cover_main)
+    story.append(Spacer(1, 0.5*cm))
 
-    if pasos:
-        story.append(Spacer(1, 0.3 * cm))
-        story.append(_section_header("11", "Próximos pasos acordados", "", styles, primary, accent, W))
-        story.append(Spacer(1, 0.15 * cm))
-        prows = [[str(i), p.get("accion", "—"), p.get("responsable", "—"),
-                  p.get("plazo", "—"), p.get("estado", "Pendiente")]
-                 for i, p in enumerate(pasos[:12], 1)]
-        story.append(_generic_table(["#", "ACCIÓN", "RESPONSABLE", "PLAZO", "ESTADO"],
-                                    prows, [0.8 * cm, 8.6 * cm, 3.0 * cm, 2.2 * cm, 2.0 * cm], styles))
+    # Barras de scores por área
+    story.append(Paragraph("Estado general por área",
+        ParagraphStyle("SGA", parent=styles["SectionHeading"],
+            spaceBefore=4, spaceAfter=2)))
+    story.append(Paragraph("Puntajes medidos por el motor de análisis (0-100).",
+        styles["BodySmall"]))
+    story.append(Spacer(1, 0.25*cm))
 
-    # =================================================================
-    # CONCLUSIÓN + CTA
-    # =================================================================
-    conclusion = ai.get("conclusion")
-    story.append(CondPageBreak(7 * cm))
-    if conclusion:
-        story.append(_section_header("12", "Conclusión ejecutiva", b["company_name"], styles, primary, accent, W))
-        story.append(Spacer(1, 0.2 * cm))
-        for parr in (conclusion.split("\n") if isinstance(conclusion, str) else []):
-            if parr.strip():
-                story.append(Paragraph(parr.strip(), styles["Body"]))
-                story.append(Spacer(1, 0.12 * cm))
+    def _bar_row(label, score):
+        sc = _score_color(score)
+        sc_h = sc.hexval()[2:]
+        bar_total = 10.5*cm
+        filled = max(0.3*cm, bar_total * score / 100)
+        bar_fill = Table([[""]], colWidths=[filled])
+        bar_fill.setStyle(TableStyle([
+            ("BACKGROUND", (0,0),(-1,-1), sc),
+            ("ROWHEIGHT",  (0,0),(-1,-1), 14),
+            ("LEFTPADDING",  (0,0),(-1,-1), 0),
+            ("RIGHTPADDING", (0,0),(-1,-1), 0),
+            ("TOPPADDING",   (0,0),(-1,-1), 0),
+            ("BOTTOMPADDING",(0,0),(-1,-1), 0),
+        ]))
+        ss = getSampleStyleSheet()
+        lbl_s = ParagraphStyle("BL", parent=ss["Normal"], fontSize=9,
+            textColor=C_DARK, leading=12)
+        sc_s = ParagraphStyle("BS", parent=ss["Normal"], fontSize=9,
+            textColor=sc, fontName="Helvetica-Bold", alignment=TA_RIGHT,
+            leading=12)
+        return [
+            Paragraph(label, lbl_s),
+            bar_fill,
+            Paragraph(f'<font color="#{sc_h}"><b>{score}</b></font>/100', sc_s),
+        ]
 
-    story.append(Spacer(1, 0.3 * cm))
-    cta = Table([[Paragraph(b["cta_text"] + f'<br/><br/><b>{b["cta_url"]}</b> &nbsp;|&nbsp; {b["contact_email"]}',
-                            styles["CTA"])]], colWidths=[W])
-    cta.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), primary),
-        ("LEFTPADDING", (0, 0), (-1, -1), 16), ("RIGHTPADDING", (0, 0), (-1, -1), 16),
-        ("TOPPADDING", (0, 0), (-1, -1), 14), ("BOTTOMPADDING", (0, 0), (-1, -1), 14)]))
-    story.append(KeepTogether(cta))
-    story.append(Spacer(1, 0.25 * cm))
+    bar_data = [
+        _bar_row("SEO técnico",          scores.get("seo_tecnico", 0)),
+        _bar_row("GEO / visibilidad en IA", scores.get("geo", 0)),
+        _bar_row("Contenido",            scores.get("contenido", 0)),
+    ]
+    bar_table = Table(bar_data, colWidths=[4.0*cm, 10.5*cm, 2.0*cm])
+    bar_table.setStyle(TableStyle([
+        ("VALIGN",       (0,0),(-1,-1), "MIDDLE"),
+        ("LEFTPADDING",  (0,0),(-1,-1), 0),
+        ("RIGHTPADDING", (0,0),(-1,-1), 0),
+        ("TOPPADDING",   (0,0),(-1,-1), 5),
+        ("BOTTOMPADDING",(0,0),(-1,-1), 5),
+    ]))
+    story.append(bar_table)
+
+    # ==================================================================
+    # 2. RESUMEN EJECUTIVO
+    # ==================================================================
+    story.append(Spacer(1, 0.4*cm))
+    ai_summary = report.get("ai_summary")
+    if ai_summary and ai_summary.strip():
+        story.append(HRFlowable(width="100%", thickness=0.5, color=C_BORDER))
+        story.append(Paragraph("Resumen ejecutivo", styles["SectionHeading"]))
+        for parrafo in ai_summary.strip().split("\n"):
+            p = parrafo.strip()
+            if p:
+                story.append(Paragraph(p, styles["Body"]))
+                story.append(Spacer(1, 0.1*cm))
+        story.append(Paragraph(
+            "Resumen generado automáticamente con IA a partir del análisis técnico.",
+            styles["Caption"]))
+    else:
+        # Resumen automático basado en datos
+        story.append(HRFlowable(width="100%", thickness=0.5, color=C_BORDER))
+        story.append(Paragraph("Resumen ejecutivo", styles["SectionHeading"]))
+        problemas = []
+        logros = []
+
+        if not report.get("https"):
+            problemas.append("el sitio no usa HTTPS")
+        else:
+            logros.append("HTTPS activo y funcional")
+
+        tl = onpage.get("title_length", 0)
+        if tl < 10 or tl > 60:
+            problemas.append(f"el title tiene {tl} caracteres (ideal: 50-60)")
+        else:
+            logros.append("etiqueta title bien optimizada")
+
+        if onpage.get("h1_count", 0) != 1:
+            problemas.append(f"hay {onpage.get('h1_count',0)} etiquetas H1 (debe ser exactamente 1)")
+        else:
+            logros.append("estructura H1 correcta")
+
+        if not llms.get("exists"):
+            problemas.append("no existe llms.txt para visibilidad en IAs")
+
+        if not sd.get("has_faqpage"):
+            problemas.append("no hay schema FAQPage, lo que reduce la visibilidad en AI Overviews")
+
+        if sd.get("jsonld_present"):
+            logros.append(f"datos estructurados Schema.org presentes: {', '.join(sd.get('types_found', [])[:4])}")
+
+        rt = report.get("response_time_seconds", 0)
+        if rt < 1.5:
+            logros.append(f"tiempo de respuesta excelente ({rt}s)")
+        else:
+            problemas.append(f"tiempo de respuesta lento ({rt}s)")
+
+        resumen = (
+            f"El análisis de <b>{domain}</b> arroja un puntaje general de "
+            f"<b>{score_gen}/100</b>. "
+        )
+        if logros:
+            resumen += f"El sitio tiene fortalezas claras: {'; '.join(logros)}. "
+        if problemas:
+            resumen += (
+                f"Sin embargo, se detectaron oportunidades de mejora importantes: "
+                f"{'; '.join(problemas)}. "
+            )
+        resumen += (
+            f"El plan de acción detallado en este informe permite mejorar el "
+            f"posicionamiento en Google y la presencia en herramientas de IA "
+            f"(ChatGPT, Gemini, Perplexity) en un plazo de 30 a 90 días."
+        )
+        story.append(Paragraph(resumen, styles["Body"]))
+
+    # ==================================================================
+    # 3. DIAGNÓSTICO TÉCNICO SEO (tabla detallada)
+    # ==================================================================
+    story.append(Spacer(1, 0.3*cm))
+    story.append(PageBreak())
+
+    num_section = [0]
+    def section(title, subtitle=""):
+        num_section[0] += 1
+        n = num_section[0]
+        badge = Table([[Paragraph(str(n), ParagraphStyle("N",
+            parent=styles["Body"], fontName="Helvetica-Bold",
+            textColor=colors.white, alignment=TA_CENTER))]],
+            colWidths=[0.55*cm])
+        badge.setStyle(TableStyle([
+            ("BACKGROUND",   (0,0),(-1,-1), _hex(b["accent_color"])),
+            ("TOPPADDING",   (0,0),(-1,-1), 3),
+            ("BOTTOMPADDING",(0,0),(-1,-1), 3),
+        ]))
+        sub_p = Paragraph(subtitle, styles["Caption"]) if subtitle else None
+        title_p = Paragraph(title, styles["SectionHeading"])
+        inner = [[badge, title_p]]
+        tt = Table(inner, colWidths=[0.7*cm, W - 0.7*cm])
+        tt.setStyle(TableStyle([
+            ("VALIGN",      (0,0),(-1,-1), "MIDDLE"),
+            ("LEFTPADDING", (0,0),(-1,-1), 0),
+            ("TOPPADDING",  (0,0),(-1,-1), 0),
+            ("BOTTOMPADDING",(0,0),(-1,-1), 0),
+        ]))
+        story.append(tt)
+        if sub_p:
+            story.append(sub_p)
+
+    section("Diagnóstico técnico", "Verificado directamente sobre el sitio")
+
+    title_ok   = bool(onpage.get("title")) and 10 <= onpage.get("title_length", 0) <= 60
+    meta_ok    = bool(onpage.get("meta_description")) and 50 <= onpage.get("meta_description_length", 0) <= 160
+    h1_ok      = onpage.get("h1_count") == 1
+
+    title_val  = f'"{onpage.get("title","—")}" ({onpage.get("title_length",0)} car.)'
+    meta_val   = f'{onpage.get("meta_description_length",0)} caracteres'
+    h1_val     = f'{onpage.get("h1_count",0)} H1 detectados'
+    h1_act     = "Usar un único H1 con la keyword principal" if not h1_ok else "Mantener"
+    title_act  = "Incluir keyword principal, 50-60 caracteres" if not title_ok else "Mantener"
+    meta_act   = "Añadir CTA y diferenciador" if not meta_ok else "Mantener (añadir CTA)"
+
+    og_count   = len(onpage.get("open_graph_tags", {}))
+    rt_ok      = report.get("response_time_seconds", 99) < 1.5
+    img_miss   = onpage.get("images_missing_alt", 0)
+    img_ok     = img_miss == 0
+
+    diag_rows = [
+        ("HTTPS / SSL",      "OK" if report.get("https") else "CRÍTICO",
+         "Activo y funcional" if report.get("https") else "No activo",
+         "Mantener activo" if report.get("https") else "Migrar a HTTPS inmediatamente", ""),
+        ("Title homepage",   "OK" if title_ok else "MEJORAR",
+         title_val, title_act, "" if title_ok else "Media"),
+        ("H1 homepage",      "OK" if h1_ok else "MEJORAR",
+         h1_val, h1_act, "" if h1_ok else "Media"),
+        ("Meta description", "OK" if meta_ok else "MEJORAR",
+         meta_val, meta_act, ""),
+        ("Open Graph",       "OK" if og_count >= 4 else "MEJORAR",
+         f"{og_count} etiquetas og:", "Mantener actualizado" if og_count >= 4 else "Agregar og:title, og:description, og:image", ""),
+        ("Schema markup",    "OK" if sd.get("jsonld_present") else "MEJORAR",
+         ", ".join(sd.get("types_found", [])) or "No detectado",
+         "Mantener y ampliar (FAQPage)" if sd.get("jsonld_present") else "Implementar Schema Organization + FAQPage",
+         "" if sd.get("jsonld_present") else "Alta"),
+        ("Sitemap XML",      "OK" if sitemap.get("exists") else "MEJORAR",
+         "Encontrado" if sitemap.get("exists") else "No encontrado",
+         "Mantener y enviar a Search Console" if sitemap.get("exists") else "Crear sitemap.xml", ""),
+        ("robots.txt",       "OK" if robots.get("exists") else "CRÍTICO",
+         "Presente" if robots.get("exists") else "No encontrado",
+         "Revisar acceso de bots de IA" if robots.get("exists") else "Crear robots.txt", ""),
+        ("Canonical / URL",  "OK" if onpage.get("canonical") else "MEJORAR",
+         "Canónica definida" if onpage.get("canonical") else "No definida",
+         "Mantener" if onpage.get("canonical") else "Agregar etiqueta canonical", ""),
+        ("Mobile (viewport)","OK" if onpage.get("viewport_present") else "CRÍTICO",
+         "Responsive" if onpage.get("viewport_present") else "No responsive",
+         "Mantener" if onpage.get("viewport_present") else "Agregar meta viewport", ""),
+        ("Acceso de bots IA","OK" if not geo.get("ai_bots_explicitly_blocked") else "MEJORAR",
+         "Permitido" if not geo.get("ai_bots_explicitly_blocked") else f'Bloqueados: {", ".join(geo["ai_bots_explicitly_blocked"])}',
+         "Mantener acceso abierto" if not geo.get("ai_bots_explicitly_blocked") else "Revisar política de bots", ""),
+        ("llms.txt",         "OK" if llms.get("exists") else "MEJORAR",
+         "Presente" if llms.get("exists") else "Ausente",
+         "Mantener" if llms.get("exists") else "Crear llms.txt (resumen del sitio)", "Media"),
+        ("Imágenes con alt", "OK" if img_ok else "MEJORAR",
+         f"{img_miss} de {onpage.get('images_total',0)} sin alt",
+         "Mantener" if img_ok else f"Agregar alt a {img_miss} imágenes", "" if img_ok else "Media"),
+        ("Velocidad respuesta","OK" if rt_ok else "MEJORAR",
+         f'{report.get("response_time_seconds","?")} s',
+         "Mantener" if rt_ok else "Optimizar servidor / CDN / caché", "" if rt_ok else "Alta"),
+    ]
+
+    story.append(Spacer(1, 0.2*cm))
+    story.append(_diagnostic_table(diag_rows))
+
+    # ==================================================================
+    # 4. REPUTACIÓN ONLINE Y AUTORIDAD
+    # ==================================================================
+    story.append(Spacer(1, 0.5*cm))
+
+    rep_note = ParagraphStyle("RN", parent=styles["BodySmall"],
+        textColor=C_GRAY, leading=12)
+    story.append(Paragraph("Reputación online y autoridad",
+        styles["SubHeading"]))
     story.append(Paragraph(
-        f"Informe generado por {b['company_name']} · {datetime.now().strftime('%Y-%m-%d %H:%M')} · "
-        f"Datos técnicos medidos automáticamente; análisis estratégico asistido por IA.",
-        styles["Caption"]))
+        "Reseñas (Trustpilot, Google) y perfil de enlaces.", styles["BodySmall"]))
+    story.append(Spacer(1, 0.2*cm))
+
+    has_review_schema = any("aggregaterating" in t.lower() or "review" in t.lower()
+                            for t in sd.get("types_found", []))
+    rep_data = [
+        ("Reseñas en tu sitio (schema)",
+         "OK" if has_review_schema else "MEJORAR",
+         "Detectadas" if has_review_schema else "No detectadas — añadir schema AggregateRating"),
+        ("Trustpilot",  "MEJORAR",
+         "Requiere API de reseñas (DataForSEO) para verificar"),
+        ("Google reviews", "MEJORAR",
+         "Requiere API (Google Places / DataForSEO)"),
+        ("Backlinks / autoridad", "MEJORAR",
+         "Requiere API de SEO (DataForSEO / Ahrefs) para datos reales"),
+    ]
+
+    ss2 = getSampleStyleSheet()
+    cs  = ParagraphStyle("cs", parent=ss2["BodyText"], fontSize=8.5, leading=12)
+    hs  = ParagraphStyle("hs", parent=ss2["BodyText"], fontSize=8,
+        fontName="Helvetica-Bold", textColor=colors.white)
+
+    rep_header = [
+        Paragraph("ELEMENTO", hs),
+        Paragraph("ESTADO", hs),
+        Paragraph("DETALLE", hs),
+    ]
+    rep_rows = [rep_header]
+    for elem, status, detalle in rep_data:
+        rep_rows.append([
+            Paragraph(elem, cs),
+            Paragraph(_status_badge(status), cs),
+            Paragraph(detalle, cs),
+        ])
+    rep_t = Table(rep_rows, colWidths=[4.5*cm, 2.2*cm, 9.3*cm])
+    rep_t.setStyle(TableStyle([
+        ("BACKGROUND",   (0,0),(-1,0),  C_DARK),
+        ("BOX",          (0,0),(-1,-1), 0.5, C_BORDER),
+        ("INNERGRID",    (0,0),(-1,-1), 0.3, C_BORDER),
+        ("VALIGN",       (0,0),(-1,-1), "TOP"),
+        ("LEFTPADDING",  (0,0),(-1,-1), 7),
+        ("RIGHTPADDING", (0,0),(-1,-1), 7),
+        ("TOPPADDING",   (0,0),(-1,-1), 5),
+        ("BOTTOMPADDING",(0,0),(-1,-1), 5),
+    ]))
+    for i in range(2, len(rep_rows), 2):
+        rep_t.setStyle(TableStyle([("BACKGROUND", (0,i),(-1,i), C_LIGHT)]))
+    story.append(rep_t)
+
+    # ==================================================================
+    # 5. SEÑALES GEO — VISIBILIDAD EN IA
+    # ==================================================================
+    story.append(PageBreak())
+    section("Señales GEO — Visibilidad en motores de IA generativa",
+            "ChatGPT · Gemini · Perplexity · AI Overviews")
+
+    story.append(Spacer(1, 0.2*cm))
+    story.append(Paragraph(
+        "La GEO (Generative Engine Optimization) determina si tu sitio aparece "
+        "como fuente citada en respuestas de inteligencia artificial. "
+        "A diferencia del SEO tradicional, las IAs priorizan sitios con contenido "
+        "estructurado, Schema.org y acceso libre a sus bots de rastreo.",
+        styles["Body"]))
+    story.append(Spacer(1, 0.3*cm))
+
+    geo_diag = [
+        ("Bots IA en robots.txt",
+         "OK" if not geo.get("ai_bots_explicitly_blocked") else "MEJORAR",
+         "Sin bloqueos detectados" if not geo.get("ai_bots_explicitly_blocked")
+             else f'Bloqueados: {", ".join(geo["ai_bots_explicitly_blocked"])}',
+         "Mantener acceso abierto a GPTBot, ClaudeBot, Perplexity, Google-Extended",
+         "Alta" if geo.get("ai_bots_explicitly_blocked") else ""),
+        ("llms.txt",
+         "OK" if llms.get("exists") else "MEJORAR",
+         "Presente" if llms.get("exists") else "Ausente",
+         "Crear /llms.txt con resumen del negocio, servicios y contacto",
+         "Media"),
+        ("Schema Organization",
+         "OK" if sd.get("has_organization") else "MEJORAR",
+         "Presente" if sd.get("has_organization") else "No detectado",
+         "Añadir schema Organization con nombre, URL, logo, contacto",
+         "" if sd.get("has_organization") else "Alta"),
+        ("Schema FAQPage",
+         "OK" if sd.get("has_faqpage") else "MEJORAR",
+         "Presente" if sd.get("has_faqpage") else "No detectado",
+         "Crear sección FAQ + schema FAQPage para aparecer en AI Overviews",
+         "" if sd.get("has_faqpage") else "Alta"),
+        ("Contenido visible sin JS",
+         "OK" if not geo.get("likely_js_heavy") else "MEJORAR",
+         "Adecuado" if not geo.get("likely_js_heavy") else "Posible dependencia de JS",
+         "Mantener SSR / pre-renderizado para que los crawlers lean el contenido",
+         "" if not geo.get("likely_js_heavy") else "Alta"),
+        ("Meta description",
+         "OK" if onpage.get("meta_description") else "CRÍTICO",
+         f'{onpage.get("meta_description_length",0)} caracteres'
+             if onpage.get("meta_description") else "Ausente",
+         "La meta description es usada por IAs como resumen del sitio",
+         "" if onpage.get("meta_description") else "Alta"),
+        ("Datos estructurados extra",
+         "OK" if len(sd.get("types_found", [])) >= 3 else "MEJORAR",
+         ", ".join(sd.get("types_found", [])) or "Ninguno",
+         "Ampliar con LocalBusiness, Product, BreadcrumbList según el negocio",
+         "Media"),
+    ]
+
+    story.append(_diagnostic_table(geo_diag,
+        col_widths=[3.5*cm, 1.8*cm, 4.0*cm, 5.5*cm, 1.7*cm]))
+
+    story.append(Spacer(1, 0.35*cm))
+    story.append(Paragraph(
+        "<b>¿Por qué importa la GEO?</b> Las búsquedas con IA (ChatGPT, Perplexity, "
+        "Google AI Overviews) ya representan millones de consultas diarias. Los sitios "
+        "citados en estas respuestas reciben tráfico de alta intención sin pagar publicidad. "
+        "Optimizar la GEO hoy es una ventaja competitiva que la mayoría de empresas "
+        "aún no aprovecha.",
+        styles["Body"]))
+
+    # ==================================================================
+    # 6. ANÁLISIS DE CONTENIDO Y PALABRAS CLAVE
+    # ==================================================================
+    story.append(Spacer(1, 0.3*cm))
+    story.append(PageBreak())
+    section("Análisis de contenido y palabras clave",
+            "Análisis de la página principal")
+
+    story.append(Spacer(1, 0.2*cm))
+
+    wc = content.get("word_count", 0)
+    wc_status = "OK" if wc >= 300 else "MEJORAR"
+    wc_msg = (f"<b>{wc} palabras</b> detectadas en la página principal. "
+              + ("Buen volumen de contenido para indexación." if wc >= 600
+                 else "Se recomienda al menos 300-600 palabras para posicionamiento efectivo." if wc >= 300
+                 else "<b>Contenido escaso.</b> Ampliar a mínimo 600 palabras con temáticas relevantes."))
+    story.append(Paragraph(wc_msg, styles["Body"]))
+    story.append(Spacer(1, 0.2*cm))
+
+    # Encabezados
+    headings = onpage.get("headings", {})
+    hdg_rows = [(f"Etiqueta {k.upper()}", str(v)) for k, v in headings.items() if v > 0]
+    hdg_rows.insert(0, ("Links internos", str(onpage.get("internal_links", 0))))
+    hdg_rows.insert(1, ("Links externos", str(onpage.get("external_links", 0))))
+    hdg_rows.insert(0, ("Palabras totales", str(wc)))
+    story.append(Paragraph("Estructura de contenido", styles["SubHeading"]))
+    story.append(_info_table(hdg_rows, col_widths=[5.0*cm, 11.5*cm]))
+    story.append(Spacer(1, 0.35*cm))
+
+    # Keywords
+    kws = content.get("top_keywords", [])
+    if kws:
+        story.append(Paragraph("Palabras clave más frecuentes en la página", styles["SubHeading"]))
+        story.append(Paragraph(
+            "Estas son las palabras que el motor de búsqueda e IA identificarán "
+            "como temáticas principales de tu sitio. Verifica que coincidan con "
+            "los servicios que ofreces y con lo que tus clientes buscan.",
+            styles["Body"]))
+        story.append(Spacer(1, 0.2*cm))
+
+        # Tabla visual de keywords
+        kw_style = ParagraphStyle("kw", parent=styles["Body"],
+            fontSize=9, leading=12)
+        max_count = max(c for _, c in kws) if kws else 1
+        kw_data = []
+        row = []
+        for i, (word, count) in enumerate(kws[:15]):
+            pct = int(100 * count / max_count)
+            cell = Table([
+                [Paragraph(f"<b>{word}</b>", kw_style)],
+                [Paragraph(f"{count} veces", styles["Caption"])],
+            ], colWidths=[4.5*cm])
+            cell.setStyle(TableStyle([
+                ("BOX",          (0,0),(-1,-1), 0.5, C_BORDER),
+                ("BACKGROUND",   (0,0),(-1,-1), C_LIGHT),
+                ("LEFTPADDING",  (0,0),(-1,-1), 8),
+                ("TOPPADDING",   (0,0),(-1,-1), 5),
+                ("BOTTOMPADDING",(0,0),(-1,-1), 5),
+            ]))
+            row.append(cell)
+            if len(row) == 3 or i == len(kws[:15]) - 1:
+                while len(row) < 3:
+                    row.append(Paragraph("", styles["Body"]))
+                kw_data.append(row)
+                row = []
+
+        if kw_data:
+            kw_table = Table(kw_data, colWidths=[5.0*cm, 5.0*cm, 5.0*cm],
+                hAlign="LEFT")
+            kw_table.setStyle(TableStyle([
+                ("LEFTPADDING",  (0,0),(-1,-1), 4),
+                ("RIGHTPADDING", (0,0),(-1,-1), 4),
+                ("TOPPADDING",   (0,0),(-1,-1), 4),
+                ("BOTTOMPADDING",(0,0),(-1,-1), 4),
+            ]))
+            story.append(kw_table)
+
+    # Preview de contenido
+    preview = content.get("first_paragraph_preview", "")
+    if preview:
+        story.append(Spacer(1, 0.3*cm))
+        story.append(Paragraph("Vista previa del contenido indexable", styles["SubHeading"]))
+        story.append(Paragraph(f'"{preview}"', styles["BodySmall"]))
+
+    # ==================================================================
+    # 7. OPEN GRAPH / PRESENCIA SOCIAL
+    # ==================================================================
+    story.append(Spacer(1, 0.4*cm))
+    section("Presencia social y Open Graph",
+            "Cómo se ve tu sitio al compartirlo en redes sociales")
+
+    og_tags = onpage.get("open_graph_tags", {})
+    og_rows = []
+    for key in ["og:title", "og:description", "og:image", "og:url", "og:type", "og:site_name"]:
+        val = og_tags.get(key)
+        og_rows.append((key, val[:100] if val else "⚠ No definido"))
+
+    story.append(Spacer(1, 0.2*cm))
+    story.append(_info_table(og_rows, col_widths=[4.5*cm, 12.0*cm]))
+    story.append(Spacer(1, 0.15*cm))
+    if og_count < 4:
+        story.append(Paragraph(
+            "Las etiquetas Open Graph controlan cómo se ve el enlace cuando alguien "
+            "comparte tu sitio en WhatsApp, LinkedIn o Facebook. "
+            "Sin ellas, el preview es genérico y poco atractivo, lo que reduce el click-through.",
+            styles["Body"]))
+
+    # ==================================================================
+    # 8. PLAN DE ACCIÓN PRIORIZADO
+    # ==================================================================
+    story.append(PageBreak())
+    section("Plan de acción priorizado",
+            "Ordenado por impacto y facilidad de implementación")
+    story.append(Spacer(1, 0.2*cm))
+
+    recs = report.get("recommendations", [])
+    alta   = [r for r in recs if any(w in r.lower() for w in ["https", "ssr", "schema", "h1", "faqpage", "organization"])]
+    media  = [r for r in recs if r not in alta and any(w in r.lower() for w in ["title", "meta", "canonical", "alt", "velocidad", "llms", "backlinks"])]
+    baja   = [r for r in recs if r not in alta and r not in media]
+
+    def _priority_block(label, items, bg_color, text_color=C_DARK):
+        if not items:
+            return None
+        ss3 = getSampleStyleSheet()
+        lbl_s = ParagraphStyle("PL", parent=ss3["Normal"], fontSize=9,
+            fontName="Helvetica-Bold", textColor=text_color)
+        item_s = ParagraphStyle("PI", parent=ss3["Normal"], fontSize=8.5,
+            leading=13, textColor=text_color)
+        def _esc(t):
+            return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        content_rows = [[Paragraph(_esc(label), lbl_s)]]
+        for it in items:
+            content_rows.append([Paragraph(f"&#8594; {_esc(it)}", item_s)])
+        t = Table(content_rows, colWidths=[W])
+        t.setStyle(TableStyle([
+            ("BACKGROUND",   (0,0),(-1,-1), bg_color),
+            ("LEFTPADDING",  (0,0),(-1,-1), 12),
+            ("RIGHTPADDING", (0,0),(-1,-1), 12),
+            ("TOPPADDING",   (0,0),(-1,-1), 8),
+            ("BOTTOMPADDING",(0,0),(-1,-1), 8),
+            ("BOX",          (0,0),(-1,-1), 0.5, C_BORDER),
+        ]))
+        return t
+
+    b_alta  = _priority_block("🔴  PRIORIDAD ALTA — Resolver en los próximos 7 días",
+                               alta, colors.HexColor("#FFF3F2"), C_DARK)
+    b_media = _priority_block("🟠  PRIORIDAD MEDIA — Resolver en el mes 1",
+                               media, colors.HexColor("#FFF8F0"), C_DARK)
+    b_baja  = _priority_block("🟢  PRIORIDAD BAJA / OPTIMIZACIÓN — Mes 2-3",
+                               baja, colors.HexColor("#F0FFF4"), C_DARK)
+
+    for block in [b_alta, b_media, b_baja]:
+        if block:
+            story.append(block)
+            story.append(Spacer(1, 0.3*cm))
+
+    # ==================================================================
+    # 9. ROADMAP 30 / 60 / 90 DÍAS
+    # ==================================================================
+    story.append(Spacer(1, 0.2*cm))
+    section("Roadmap 30 / 60 / 90 días",
+            "Plan de ejecución recomendado para maximizar resultados")
+    story.append(Spacer(1, 0.2*cm))
+
+    roadmap = [
+        ("MES 1 — Quick wins", colors.HexColor("#1C1C1C"), [
+            "Corregir title (50-60 car.) con keyword principal",
+            "Ajustar a un único H1 por página",
+            "Verificar/crear meta description con CTA",
+            "Crear llms.txt con resumen del negocio y servicios",
+            "Implementar schema Organization + FAQPage en JSON-LD",
+            "Enviar sitemap.xml a Google Search Console",
+            "Agregar alt a imágenes sin descripción",
+        ]),
+        ("MES 2 — Estructura y contenido", colors.HexColor("#F4511E"), [
+            "Ampliar contenido de la home a 600+ palabras",
+            "Crear/ampliar sección de Preguntas Frecuentes",
+            "Completar etiquetas Open Graph (og:image de calidad)",
+            "Auditar páginas internas con el mismo checklist",
+            "Configurar Google Search Console y corregir errores de rastreo",
+            "Iniciar estrategia de contenido mensual (1-2 artículos)",
+        ]),
+        ("MES 3 — Autoridad y GEO avanzada", colors.HexColor("#29B6F6"), [
+            "Iniciar construcción de backlinks (directorios, alianzas, PR digital)",
+            "Crear perfil en Trustpilot / Google Business y solicitar reseñas",
+            "Ampliar schema: Product, LocalBusiness, BreadcrumbList",
+            "Medir posicionamiento en AI Overviews (ChatGPT, Perplexity)",
+            "Analizar keywords de competidores y ajustar contenido",
+            "Evaluar resultados y ajustar plan para mes 4-6",
+        ]),
+    ]
+
+    ss4 = getSampleStyleSheet()
+    for title_r, bg, items_r in roadmap:
+        rt_s = ParagraphStyle("RT", parent=ss4["Normal"], fontSize=10,
+            fontName="Helvetica-Bold", textColor=colors.white, leading=13)
+        ri_s = ParagraphStyle("RI", parent=ss4["Normal"], fontSize=8.5,
+            textColor=colors.white, leading=13)
+        rows = [[Paragraph(title_r, rt_s)]]
+        for item in items_r:
+            rows.append([Paragraph(f"  ✓  {item}", ri_s)])
+        rt_table = Table(rows, colWidths=[W])
+        rt_table.setStyle(TableStyle([
+            ("BACKGROUND",   (0,0),(-1,0),  bg),
+            ("BACKGROUND",   (0,1),(-1,-1), colors.HexColor("#2A2A2A")),
+            ("LEFTPADDING",  (0,0),(-1,-1), 14),
+            ("RIGHTPADDING", (0,0),(-1,-1), 14),
+            ("TOPPADDING",   (0,0),(-1,-1), 7),
+            ("BOTTOMPADDING",(0,0),(-1,-1), 7),
+            ("BOX",          (0,0),(-1,-1), 0.5, colors.HexColor("#444")),
+        ]))
+        story.append(rt_table)
+        story.append(Spacer(1, 0.3*cm))
+
+    # ==================================================================
+    # 10. CTA FINAL
+    # ==================================================================
+    story.append(Spacer(1, 0.4*cm))
+    cta_ss = getSampleStyleSheet()
+    cta_title_s = ParagraphStyle("CTA_T", parent=cta_ss["Normal"],
+        fontSize=13, fontName="Helvetica-Bold", textColor=colors.white,
+        leading=16)
+    cta_body_s = ParagraphStyle("CTA_B", parent=cta_ss["Normal"],
+        fontSize=10, textColor=colors.HexColor("#DDDDDD"), leading=14)
+    cta_link_s = ParagraphStyle("CTA_L", parent=cta_ss["Normal"],
+        fontSize=10, textColor=colors.white, fontName="Helvetica-Bold",
+        leading=14)
+
+    cta_content = [
+        Paragraph("¿Quieres que ejecutemos este plan contigo?", cta_title_s),
+        Spacer(1, 4),
+        Paragraph(b["cta_text"], cta_body_s),
+        Spacer(1, 6),
+        Paragraph(
+            f'<b>{b["cta_url"]}</b> &nbsp;|&nbsp; {b["contact_email"]}',
+            cta_link_s),
+    ]
+    cta_table = Table([[cta_content]], colWidths=[W])
+    cta_table.setStyle(TableStyle([
+        ("BACKGROUND",   (0,0),(-1,-1), C_DARK),
+        ("BOX",          (0,0),(-1,-1), 2, _hex(b["accent_color"])),
+        ("LEFTPADDING",  (0,0),(-1,-1), 18),
+        ("RIGHTPADDING", (0,0),(-1,-1), 18),
+        ("TOPPADDING",   (0,0),(-1,-1), 16),
+        ("BOTTOMPADDING",(0,0),(-1,-1), 16),
+    ]))
+    story.append(cta_table)
+
+    story.append(Spacer(1, 0.4*cm))
+    story.append(Paragraph(
+        f"Informe generado por {b['company_name']} · "
+        f"{datetime.now().strftime('%Y-%m-%d %H:%M')} · "
+        "Datos técnicos medidos automáticamente; análisis estratégico asistido por IA.",
+        styles["Caption"],
+    ))
+
+    # ==================================================================
+    # BUILD
+    # ==================================================================
+    def _on_page(canvas, doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 7)
+        canvas.setFillColor(C_GRAY)
+        canvas.drawString(1.5*cm, 0.8*cm,
+            f"Agencia IDP · Diagnóstico SEO + GEO Premium · Confidencial")
+        canvas.drawRightString(letter[0] - 1.5*cm, 0.8*cm,
+            f"Página {doc.page}")
+        canvas.restoreState()
 
     doc = SimpleDocTemplate(
         output_path, pagesize=letter,
-        topMargin=1.5 * cm, bottomMargin=1.6 * cm,
-        leftMargin=1.5 * cm, rightMargin=1.5 * cm,
-        title=f"Diagnóstico SEO + GEO Premium - {report.get('domain')}",
-        author=b["company_name"])
-    footer = _make_footer(b)
-    doc.build(story, onFirstPage=footer, onLaterPages=footer)
+        topMargin=1.5*cm, bottomMargin=1.8*cm,
+        leftMargin=1.5*cm, rightMargin=1.5*cm,
+        title=f"Diagnóstico SEO & GEO Premium — {domain}",
+    )
+    doc.build(story, onFirstPage=_on_page, onLaterPages=_on_page)
     return output_path
