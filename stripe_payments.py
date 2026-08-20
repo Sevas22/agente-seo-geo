@@ -56,18 +56,14 @@ def crear_sesion_checkout(nombre: str, email: str, dominio: str,
     base_url = os.environ.get("APP_BASE_URL", "").rstrip("/")
     if not base_url:
         raise RuntimeError(
-            "Falta APP_BASE_URL (ej. https://tu-widget.vercel.app). "
-            "Configurala en Render -> Environment."
+            "Falta APP_BASE_URL (ej. https://agenciaidp.com). "
+            "Configurala en las variables de entorno."
         )
 
-    # Página de resultado (donde se muestra el informe tras pagar). Configurable
-    # con STRIPE_SUCCESS_URL; por defecto una página del sitio WordPress.
-    # Nota: se usa el parámetro 'ref' (no 'session_id') porque muchos firewalls
-    # de WordPress/LiteSpeed bloquean el parámetro 'session_id' (devuelven 403).
-    success_base = os.environ.get("STRIPE_SUCCESS_URL") or f"{base_url}/informe-seo-geo"
-    sep = "&" if "?" in success_base else "?"
-    success_url = f"{success_base}{sep}ref={{CHECKOUT_SESSION_ID}}"
-    cancel_url = os.environ.get("STRIPE_CANCEL_URL") or base_url
+    # Permite sobreescribir la URL de éxito con STRIPE_SUCCESS_URL
+    success_base = os.environ.get("STRIPE_SUCCESS_URL", f"{base_url}/informe-seo-geo").rstrip("/")
+    success_url = f"{success_base}?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{base_url}/?cancelado=1"
 
     session = s.checkout.Session.create(
         mode="payment",
@@ -75,14 +71,15 @@ def crear_sesion_checkout(nombre: str, email: str, dominio: str,
         customer_email=email,
         success_url=success_url,
         cancel_url=cancel_url,
-        # Muestra el cajón "Agregar código promocional" en la página de pago.
-        # Tu equipo usa un código (ej. cupón 100%) para generar el informe gratis.
         allow_promotion_codes=True,
         metadata={
             "nombre": nombre,
             "dominio": dominio,
             "telefono": telefono or "",
             "empresa": empresa or "",
+        },
+        payment_intent_data={
+            "description": f"Diagnostico SEO & GEO — {dominio}",
         },
     )
 
@@ -108,8 +105,7 @@ def verificar_pago_y_obtener_metadata(session_id: str) -> dict:
     except s.error.InvalidRequestError as exc:
         raise ValueError(f"Session de Stripe no valida: {exc}") from exc
 
-    # "paid" = pago normal; "no_payment_required" = total $0 (código del 100%).
-    pagado = session.payment_status in ("paid", "no_payment_required")
+    pagado = session.payment_status == "paid"
 
     metadata = session.metadata or {}
     return {
